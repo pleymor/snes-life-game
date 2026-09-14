@@ -6,3 +6,8 @@ build/
 tests/run
 tools/sim
 .DS_Store
+
+# espaces de travail des outils, jamais versionnés
+.superpowers/
+.claude/worktrees/
+.worktrees/
