@@ -1,0 +1,8 @@
+build/
+*.sfc
+*.smc
+*.o
+*.sym
+tests/run
+tools/sim
+.DS_Store
