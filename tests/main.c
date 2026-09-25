@@ -4,6 +4,7 @@ void suite_board(void);
 void suite_life(void);
 void suite_rules(void);
 void suite_match(void);
+void suite_view(void);
 
 int main(void)
 {
@@ -11,5 +12,6 @@ int main(void)
     suite_life();
     suite_rules();
     suite_match();
+    suite_view();
     return t_report();
 }
