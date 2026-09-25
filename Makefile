@@ -14,7 +14,27 @@ export BUILD_ROM := 1
 export ROMNAME := life
 export ROMTITLE := SNES LIFE GAME
 
+# src/snes/*.c (main.c, render.c) #include headers from src/core/ by quoted
+# name (e.g. "match.h") without a relative path; snes_rules' own CFLAGS only
+# adds $(CURDIR) (the repo root), so src/core needs its own -I here.
+CFLAGS += -Isrc/core
+
+GFX4SNES := $(PVSNESLIB_HOME)/devkitsnes/tools/gfx4snes
+
+data/tiles.pic data/tiles.pal: data/tiles.bmp
+	$(GFX4SNES) -s 8 -o 16 -u 16 -t bmp -e 0 -p -i $<
+
+data/tiles.bmp: tools/mktiles.py
+	python3 $<
+
 include $(PVSNESLIB_HOME)/devkitsnes/snes_rules
+
+# src/snes/tiles.asm .incbin's data/tiles.pic and data/tiles.pal (via the
+# gfx4snes-generated data/tiles_data.as); make does not see through that
+# .include, so the assembler's own prerequisite (data/tiles.bmp -> ... ->
+# the .obj rule below) must be declared explicitly or a from-clean build
+# tries to assemble before the art is converted.
+src/snes/tiles.obj: data/tiles.pic data/tiles.pal
 
 .PHONY: rom
 rom: buildWithSummary

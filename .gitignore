@@ -10,6 +10,8 @@ tools/sim
 # artefacts produits par la chaîne PVSnesLib (gfx4snes, 816-tcc, wla-65816)
 data/*.pic
 data/*.pal
+data/*.inc
+data/*_data.as
 *.obj
 /hdr.asm
 /linkfile

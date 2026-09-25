@@ -264,6 +264,97 @@ builds and screenshots it for real. `.asm`/`_data.as` files placed under
 `src/snes/*/*.asm` are picked up automatically by `snes_rules` (see
 Makefile section below); nothing needs registering by hand.
 
+#### Addendum — verified in Task 8: the full pipeline, real symbol names, gotchas
+
+Task 8 ran the pipeline above for real against `data/tiles.bmp` (a
+generated 128×16 8bpp indexed BMP, 32 tile slots, 16 colors) and linked the
+result into `build/life.sfc`, confirmed on a RetroArch screenshot. Exact,
+working command (gfx4snes 2.2.0):
+
+```bash
+$PVSNESLIB_HOME/devkitsnes/tools/gfx4snes -s 8 -o 16 -u 16 -t bmp -e 0 -p -i data/tiles.bmp
+```
+
+(`-s 8` 8×8 tiles, `-o 16`/`-u 16` output and use 16 colors, `-t bmp`
+explicit input type, `-e 0` palette entry 0, `-p` also emit the `.pal`.)
+Output, real content:
+
+```
+data/tiles.pic       1024 bytes  (32 tiles * 32 bytes/tile, 4bpp planar)
+data/tiles.pal         32 bytes  (16 colors * 2 bytes BGR555)
+data/tiles.inc         (extern unsigned char tiles_til,tiles_tilend;
+                         extern unsigned char tiles_pal,tiles_palend;)
+data/tiles_data.as     (tiles_til:/.incbin "data/tiles.pic"/tiles_tilend:
+                         tiles_pal:/.incbin "data/tiles.pal"/tiles_palend:)
+```
+
+Symbol names are exactly `<basename>_til` / `<basename>_tilend` /
+`<basename>_pal` / `<basename>_palend`, `<basename>` being the `-i` filename
+without directory or extension (`tiles`, from `data/tiles.bmp`) — confirmed
+by reading the generated `data/tiles.inc` after the real run, not assumed.
+`src/snes/render.c` declares these four symbols by hand (matching
+`tiles.inc`'s content) instead of `#include`-ing `data/tiles.inc`, to avoid
+adding a `data/` include path to `CFLAGS` for one header.
+
+**`.incbin` paths are relative to the assembler's process CWD (the repo
+root, since `make` always runs from there), not to the `.asm` file's own
+directory.** gfx4snes bakes the exact path given to `-i` (here `data/`)
+into the generated `.incbin "data/tiles.pic"` line, so the wrapper file
+must live somewhere `wla-65816` is invoked from the root — it does not need
+to sit next to the `.pic`. Task 8's wrapper, `src/snes/tiles.asm` (matches
+`SimpleSprite/data.asm`'s shape, `.include` path adjusted):
+
+```
+.include "hdr.asm"
+
+.section ".rodata_tiles" superfree
+.include "data/tiles_data.as"
+.ends
+```
+
+C load sequence that worked, unmodified from the header-verified draft
+above, `TILES_VRAM_ADDR = 0x4000` (tile data) / `MAP_VRAM_ADDR = 0x0000`
+(BG1 tilemap), same split as the shipped `Mode1` example:
+
+```c
+extern char tiles_til, tiles_tilend;
+extern char tiles_pal, tiles_palend;
+
+bgInitTileSet(0, &tiles_til, &tiles_pal, 0,
+              (u16)(&tiles_tilend - &tiles_til),
+              (u16)(&tiles_palend - &tiles_pal),
+              BG_16COLORS, 0x4000);
+bgSetMapPtr(0, 0x0000, SC_32x32);
+setMode(BG_MODE1, 0);
+```
+
+Two build-system gotchas found only by actually wiring this in, both now
+handled in the root `Makefile`:
+
+- `CFLAGS` from `snes_rules` only adds `-I$(PVSNESLIB_HOME)/...` and
+  `-I$(CURDIR)` (the repo root) — a `src/snes/*.c` file that
+  `#include "match.h"` (a `src/core/` header, by quoted name with no
+  relative path) fails to compile without an explicit `CFLAGS += -Isrc/core`
+  added in the project `Makefile`.
+- `make`'s dependency graph does not see through `.include` inside a
+  `.asm` file, so nothing forces `data/tiles.pic`/`data/tiles.pal` to exist
+  before `wla-65816` assembles `src/snes/tiles.asm` on a from-clean build.
+  Fixed with an explicit extra prerequisite line:
+  `src/snes/tiles.obj: data/tiles.pic data/tiles.pal`.
+
+gfx4snes also always emits `data/tiles.inc` and `data/tiles_data.as`
+alongside `.pic`/`.pal`; `.gitignore` needed two more patterns
+(`data/*.inc`, `data/*_data.as`) beyond Task 0's anticipatory
+`data/*.pic`/`data/*.pal` to keep `git status` clean after `make rom`.
+
+Verified end-to-end: `make rom` from a fully clean tree (no `data/*`,
+`build/`, `hdr.asm`, `linkfile`, `life.log` present) regenerates
+`data/tiles.bmp` from `tools/mktiles.py`, converts it, assembles, links,
+and produces `build/life.sfc` in one pass with zero compiler/assembler/
+linker warnings; a RetroArch headless screenshot (recipe in section 2)
+shows the loaded tiles and palette rendering correctly — see
+`.superpowers/sdd/2026-09-14-immigration/task-8-report.md`.
+
 ### Writing a tilemap to VRAM by DMA (the task 7 mechanism)
 
 **Verified** (`src/snes/main.c`) — this is the one the whole spike exists to
