@@ -82,11 +82,10 @@ static void test_les_poses_restantes_se_vident(void)
     T_TRUE(match_place(&m, 5, 13));
     view_hud(&m, hud);
     T_EQ(hud[6], TILE_PIP_ON);
-    T_EQ(hud[7], TILE_PIP_ON);
-    T_EQ(hud[8], TILE_PIP_OFF);
-    /* Le joueur inactif garde ses trois pastilles pleines. */
+    T_EQ(hud[7], TILE_PIP_OFF);
+    /* Le joueur inactif garde ses BUDGET pastilles pleines. */
     T_EQ(hud[23], TILE_PIP_ON);
-    T_EQ(hud[25], TILE_PIP_ON);
+    T_EQ(hud[24], TILE_PIP_ON);
 }
 
 static void test_le_marqueur_demballement_napparait_qua_partir_du_round_16(void)

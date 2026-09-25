@@ -38,13 +38,18 @@ CORE_SRC  := $(wildcard src/core/*.c)
 TEST_SRC  := $(wildcard tests/*.c)
 HOSTFLAGS := -std=c89 -pedantic -Wall -Wextra -Werror -Isrc/core -Itests -g \
              -fsanitize=address,undefined
+SIMFLAGS  := -std=c99 -Wall -Wextra -O2 -Isrc/core
 
-.PHONY: test clean
+.PHONY: test clean sim
 test: build/run-tests
 	./build/run-tests
 
 build/run-tests: $(CORE_SRC) $(TEST_SRC) | build
 	$(CC) $(HOSTFLAGS) $^ -o $@
+
+sim: build/sim
+build/sim: $(CORE_SRC) tools/sim.c | build
+	$(CC) $(SIMFLAGS) $^ -o $@
 
 build:
 	mkdir -p build
