@@ -124,10 +124,10 @@ est stable d'une graine à l'autre.
 | 3            | 2 %         | 36 % | 63 % | 1 | 39.9 | 52.5 |
 
 En `easy`, l'élimination reste sous 2 % partout, jamais dans les
-environs de 50 %. Le split P1/P2 varie d'un réglage à l'autre : quatre
+environs de 50 %. Le split P1/P2 varie d'un réglage à l'autre : trois
 lignes sur onze restent **dans** la bande 60/40 demandée par le critère 2
 (BUDGET=2 : 39/59 ; RANGE_RADIUS=1 : 40/56 ; et, à la limite, RAMPUP=20 :
-39/60), les sept autres — dont les trois réglages de spec (RAMPUP=16,
+39/60), les huit autres — dont les trois réglages de spec (RAMPUP=16,
 BUDGET=3, RANGE_RADIUS=2, tous à 33/66) — restent **hors** de la bande
 (63 à 68 % pour le côté majoritaire). Cette différence ne change toutefois
 rien à la décision : le critère 1 (élimination > 50 %) est évalué en
