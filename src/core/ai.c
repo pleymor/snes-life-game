@@ -17,23 +17,6 @@ static int   scores[AI_TOPK_MAX];
 typedef struct { u8 x, y; short pre; } Cand;
 static Cand cands[AI_MAX_CANDS];
 
-/* Mêmes fonctions que dans rules.c, et pour la même raison : aucun modulo
-   dans les boucles chaudes de l'IA. Les décalages y vont jusqu'à 4, ce qui
-   reste bien en deçà des dimensions du plateau. */
-static int wrap_x(int x)
-{
-    if (x < 0)        return x + BOARD_W;
-    if (x >= BOARD_W) return x - BOARD_W;
-    return x;
-}
-
-static int wrap_y(int y)
-{
-    if (y < 0)        return y + BOARD_H;
-    if (y >= BOARD_H) return y - BOARD_H;
-    return y;
-}
-
 /* Masqué sur 32 bits pour que la suite soit identique sur l'hôte, où `long`
    fait souvent 64 bits, et sur la console, où il en fait 32. Sans quoi le
    simulateur et la ROM divergeraient. */
@@ -54,7 +37,7 @@ static void win_load(const Board *b, int cx, int cy, int side)
     int r = side / 2, i, j;
     for (j = 0; j < side; j++) {
         for (i = 0; i < side; i++) {
-            wa[j][i] = (u8)board_get(b, wrap_x(cx - r + i), wrap_y(cy - r + j));
+            wa[j][i] = (u8)board_get(b, BOARD_WRAP_X(cx - r + i), BOARD_WRAP_Y(cy - r + j));
         }
     }
 }
@@ -78,13 +61,7 @@ static void win_tick(int side)
                 }
             }
             self = wa[j][i];
-            if (self) {
-                wb[j][i] = (n == 2 || n == 3) ? self : (u8)CELL_EMPTY;
-            } else {
-                wb[j][i] = (n == 3)
-                    ? (u8)(n1 >= 2 ? CELL_P1 : CELL_P2)
-                    : (u8)CELL_EMPTY;
-            }
+            wb[j][i] = LIFE_RULE(self, n, n1);
         }
     }
     memcpy(wa, wb, sizeof wa);
@@ -128,7 +105,7 @@ static int live_neighbors(const Board *b, int x, int y)
     for (dy = -1; dy <= 1; dy++) {
         for (dx = -1; dx <= 1; dx++) {
             if (dx == 0 && dy == 0) continue;
-            if (board_get(b, wrap_x(x + dx), wrap_y(y + dy)) != CELL_EMPTY) n++;
+            if (board_get(b, BOARD_WRAP_X(x + dx), BOARD_WRAP_Y(y + dy)) != CELL_EMPTY) n++;
         }
     }
     return n;
@@ -143,7 +120,7 @@ static int enemy_pull(const Board *b, Cell foe, int x, int y)
     for (dy = -4; dy <= 4; dy++) {
         for (dx = -4; dx <= 4; dx++) {
             int a, c;
-            if (board_get(b, wrap_x(x + dx), wrap_y(y + dy)) != foe) continue;
+            if (board_get(b, BOARD_WRAP_X(x + dx), BOARD_WRAP_Y(y + dy)) != foe) continue;
             a = (dx < 0) ? -dx : dx;
             c = (dy < 0) ? -dy : dy;
             if (c > a) a = c;

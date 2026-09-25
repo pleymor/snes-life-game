@@ -21,15 +21,7 @@ void life_tick(const Board *in, Board *out)
             v = p[2 * BSTRIDE + 2];if (v) { n++; if (v == CELL_P1) n1++; }
 
             self = in->c[y][x];
-            if (self) {
-                out->c[y][x] = (n == 2 || n == 3) ? self : (u8)CELL_EMPTY;
-            } else {
-                /* Trois parents se répartissent en 3-0 ou 2-1 : la majorité
-                   est toujours tranchée. */
-                out->c[y][x] = (n == 3)
-                    ? (u8)(n1 >= 2 ? CELL_P1 : CELL_P2)
-                    : (u8)CELL_EMPTY;
-            }
+            out->c[y][x] = LIFE_RULE(self, n, n1);
         }
     }
     board_wrap(out);
