@@ -124,13 +124,29 @@ est stable d'une graine à l'autre.
 | 3            | 2 %         | 36 % | 63 % | 1 | 39.9 | 52.5 |
 
 En `easy`, l'élimination reste sous 2 % partout, jamais dans les
-environs de 50 %. Le split P1/P2 reste dans une fourchette 32-40 / 56-68 :
-proche de la spec partout, jamais dans la bande 60/40 stricte demandée,
-mais aucun réglage n'en sort non plus nettement pire qu'un autre — les
-écarts d'un réglage à l'autre (quelques points de pourcentage) sont du
-même ordre que l'écart entre les deux graines de la mesure de stabilité
-ci-dessus, donc probablement du bruit d'échantillonnage plutôt qu'un vrai
-effet de réglage.
+environs de 50 %. Le split P1/P2 varie d'un réglage à l'autre : quatre
+lignes sur onze restent **dans** la bande 60/40 demandée par le critère 2
+(BUDGET=2 : 39/59 ; RANGE_RADIUS=1 : 40/56 ; et, à la limite, RAMPUP=20 :
+39/60), les sept autres — dont les trois réglages de spec (RAMPUP=16,
+BUDGET=3, RANGE_RADIUS=2, tous à 33/66) — restent **hors** de la bande
+(63 à 68 % pour le côté majoritaire). Cette différence ne change toutefois
+rien à la décision : le critère 1 (élimination > 50 %) est évalué en
+premier et aucun réglage n'y satisfait, donc le critère 2 n'est jamais
+consulté pour décider. Les écarts d'un réglage à l'autre sur le split
+(quelques points de pourcentage, hormis peut-être l'effet visible sur
+RANGE_RADIUS) sont du même ordre que l'écart entre les deux graines de la
+mesure de stabilité ci-dessus, donc en grande partie du bruit
+d'échantillonnage plutôt qu'un vrai effet de réglage — sauf pour le point
+suivant, qui lui est net et mérite d'être noté séparément.
+
+**Aux réglages de spec eux-mêmes, P2 gagne nettement plus souvent que P1**
+(66 % contre 33 % en `easy`, stable sur les deux graines testées ; 52 %
+contre 48 % seulement en `mixed`, où le trait alterne). Ce déséquilibre
+existe indépendamment de la question de l'élimination et fait partie de la
+question ouverte pour un humain (§ suivante) : est-ce l'IA (l'ordre de
+balayage des candidats, identique pour les deux camps, favorise
+peut-être structurellement le second à jouer) ou la position de départ qui
+avantage P2 ? Ce n'est pas tranché ici.
 
 ## Mode `mixed` : `AI_NORMAL` contre `AI_EASY`, sièges alternés
 
@@ -200,7 +216,7 @@ réel à l'intention de la spec (« l'élimination arrive-t-elle vraiment ? »)
 que cette tâche ne peut pas corriger en réglant seulement `config.h` — les
 leviers disponibles (portée, budget, timing de l'emballement) ont chacun
 été mesurés sur toute leur plage prévue par le brief sans jamais
-s'approcher de 50 %. Deux hypothèses, **non tranchées, à arbitrer par un
+s'approcher de 50 %. Trois points, **non tranchés, à arbitrer par un
 humain** :
 
 - **Les blocs 2×2 de départ (spec § 2.4) sont des natures mortes
@@ -215,6 +231,14 @@ humain** :
   candidats pré-filtrés par la même heuristique gloutonne — aucune des
   deux ne joue jamais un coup délibérément agressif ou sacrificiel qui
   viserait l'élimination plutôt que l'avantage local.
+- **P2 gagne nettement plus souvent que P1 aux réglages de spec**, en
+  dehors même de la question de l'élimination : 66 % contre 33 % en
+  `easy` (stable sur deux graines), hors de la bande 60/40 du critère 2 —
+  voir le détail par réglage plus haut. Le critère 1 n'étant satisfait par
+  aucun réglage, ce déséquilibre n'a pas pesé sur la décision de cette
+  tâche, mais il reste réel et pourrait valoir la peine d'être creusé pour
+  lui-même (biais de l'IA en faveur du second joueur ? de la position de
+  départ ?).
 
 Si l'élimination doit devenir le mode de décision courant plutôt que rare,
 la piste la plus prometteuse d'après ces mesures est `RAMPUP_ROUND` (seul
