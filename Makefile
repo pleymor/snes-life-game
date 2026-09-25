@@ -35,7 +35,9 @@ rom:
 endif
 
 CORE_SRC  := $(wildcard src/core/*.c)
+CORE_HDR  := $(wildcard src/core/*.h)
 TEST_SRC  := $(wildcard tests/*.c)
+TEST_HDR  := $(wildcard tests/*.h)
 HOSTFLAGS := -std=c89 -pedantic -Wall -Wextra -Werror -Isrc/core -Itests -g \
              -fsanitize=address,undefined
 SIMFLAGS  := -std=c99 -Wall -Wextra -O2 -Isrc/core
@@ -44,12 +46,16 @@ SIMFLAGS  := -std=c99 -Wall -Wextra -O2 -Isrc/core
 test: build/run-tests
 	./build/run-tests
 
-build/run-tests: $(CORE_SRC) $(TEST_SRC) | build
-	$(CC) $(HOSTFLAGS) $^ -o $@
+# Les en-têtes sont des prérequis (config.h en particulier : un balayage de
+# réglages qui ne touche que config.h doit forcer la recompilation), mais ne
+# vont pas sur la ligne de commande du compilateur : $(filter %.c,$^) ne
+# retient que les sources.
+build/run-tests: $(CORE_SRC) $(CORE_HDR) $(TEST_SRC) $(TEST_HDR) | build
+	$(CC) $(HOSTFLAGS) $(filter %.c,$^) -o $@
 
 sim: build/sim
-build/sim: $(CORE_SRC) tools/sim.c | build
-	$(CC) $(SIMFLAGS) $^ -o $@
+build/sim: $(CORE_SRC) $(CORE_HDR) tools/sim.c | build
+	$(CC) $(SIMFLAGS) $(filter %.c,$^) -o $@
 
 build:
 	mkdir -p build
