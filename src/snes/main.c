@@ -37,7 +37,10 @@ static bool_t board_dirty = TRUE;
 //---------------------------------------------------------------------------------
 int main(void)
 {
-    int frame = 0;
+    /* unsigned : `frame & 16` only ever needs the low bits, and a plain
+       (signed) `int` would overflow undefined behaviour past 32767 on the
+       16-bit `int` of the 65816 target (fix round 1, review finding). */
+    unsigned int frame = 0;
 
     render_init();
     match_start(&m);

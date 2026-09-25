@@ -21,6 +21,18 @@ static u8 hud[HUD_W];
 static bool_t board_pending = FALSE;
 static bool_t hud_pending = FALSE;
 
+/* Fix round 1 : view_hud() balaie deux fois les 768 cases du plateau
+   (board_count() pour chaque joueur) rien que pour préparer le bandeau ;
+   le rappeler à chaque frame pour un simple clignotement coûtait ce
+   balayage 60 fois par seconde sur un 65816, assez pour provoquer des
+   "lag frames" (voir docs/snes-notes.md, tâche 9 fix round 1). hud_dirty
+   ne fait recalculer le bandeau par view_hud() (dans render_hud_now(),
+   ci-dessous) qu'au démarrage et chaque fois que render_hud_dirty() est
+   appelée (dès la tâche 10, partout où board_dirty l'est aussi) ; entre
+   deux recalculs, le clignotement ne fait que basculer la seule tuile de
+   l'icône du joueur actif entre sa valeur mise en cache et TILE_EMPTY. */
+static bool_t hud_dirty = TRUE;
+
 /* Symboles produits par gfx4snes (data/tiles.pic, data/tiles.pal) puis
    assemblés dans la ROM par src/snes/tiles.asm. Orthographe consignée dans
    docs/snes-notes.md, vérifiée à la tâche 8 : <nom-du-fichier>_til /
@@ -84,11 +96,19 @@ void render_init(void)
     bgSetEnable(1);
     bgSetDisable(2);
 
-    /* map_bg2 est en mémoire statique (donc mis à zéro = TILE_EMPTY par le
-       C au démarrage), mais la VRAM elle-même ne l'est pas forcément à la
-       mise sous tension : un seul transfert complet ici garantit que tout
-       le bandeau est vide avant que render_hud_now()/render_vblank() ne se
-       mettent à ne transférer que sa ligne HUD_ROW à chaque frame. */
+    /* map_bg1/map_bg2 sont en mémoire statique (donc mis à zéro = TILE_EMPTY
+       par le C au démarrage), mais la VRAM elle-même ne l'est pas forcément
+       à la mise sous tension (fix round 1, constat de revue) : un transfert
+       complet de chaque tilemap ici, pendant le forced blank (setScreenOn()
+       n'a pas encore été appelé, l'accès VRAM est donc libre), garantit que
+       toute la VRAM des deux tilemaps est à TILE_EMPTY avant que
+       render_board_now()/render_vblank() ne se mettent à ne transférer que
+       les BOARD_H lignes utilisées, et render_hud_now()/render_vblank() que
+       la ligne HUD_ROW. Sans ce transfert initial, les lignes 24 à 31 de la
+       tilemap de BG1 (jamais réécrites ensuite) garderaient un contenu
+       indéterminé, visible par-dessus le bandeau de BG2 (même priorité,
+       BG1 au-dessus en mode 1). */
+    dmaCopyVram((u8 *)map_bg1, MAP_BG1_VRAM_ADDR, sizeof(map_bg1));
     dmaCopyVram((u8 *)map_bg2, MAP_BG2_VRAM_ADDR, sizeof(map_bg2));
 
     /* Jeu de tuiles et palette du curseur : zone VRAM et palette séparées
@@ -114,18 +134,36 @@ void render_board_now(const Match *m, bool_t show_range)
     board_pending = TRUE;
 }
 
+void render_hud_dirty(void)
+{
+    hud_dirty = TRUE;
+}
+
 void render_hud_now(const Match *m, bool_t blink_on)
 {
-    int i;
-    view_hud(m, hud);
-    if (!blink_on) {
-        /* La pastille du joueur actif s'éteint une alternance sur deux :
-           c'est ce qui signale à qui est le tour. */
-        hud[(m->turn == CELL_P1) ? 0 : 31] = TILE_EMPTY;
+    int icon_index;
+
+    if (hud_dirty) {
+        /* Chemin coûteux (deux balayages de 768 cases dans view_hud()) :
+           seulement au démarrage, puis chaque fois que render_hud_dirty()
+           a été appelée depuis le dernier appel. */
+        int i;
+        view_hud(m, hud);
+        for (i = 0; i < HUD_W; i++) {
+            map_bg2[HUD_ROW * 32 + i] = (unsigned short)hud[i];
+        }
+        hud_dirty = FALSE;
     }
-    for (i = 0; i < HUD_W; i++) {
-        map_bg2[HUD_ROW * 32 + i] = (unsigned short)hud[i];
-    }
+
+    /* Chemin bon marché, exécuté à chaque appel : la pastille du joueur
+       actif s'éteint une alternance sur deux, c'est ce qui signale à qui
+       est le tour. `hud[icon_index]` garde la couleur mise en cache par
+       le dernier recalcul (jamais éteinte par view_hud() elle-même), donc
+       aucune relecture du plateau n'est nécessaire pour l'allumer ou
+       l'éteindre. */
+    icon_index = (m->turn == CELL_P1) ? 0 : 31;
+    map_bg2[HUD_ROW * 32 + icon_index] =
+        (unsigned short)(blink_on ? hud[icon_index] : TILE_EMPTY);
     hud_pending = TRUE;
 }
 

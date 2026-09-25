@@ -627,24 +627,46 @@ in section 3 above). Task 9 places the cursor's one 8×8 tile at `0x2000`,
 between the two BG tilemaps (`0x0000`–`0x07FF`) and the shared BG tile data
 (`0x4000`+), with room to spare on both sides.
 
-**Headless screenshot timing caveat, sharpened**: section 2's
-`--max-frames=N` recipe is confirmed to need N well past 400 in practice —
-RetroArch's own "content loaded" notification banner was still visible at
-`--max-frames=40` in this task's testing (it cleared by 400). More
-importantly, **the raw RetroArch frame count is *not* a reliable predictor
-of the ROM's own internal frame counter** (a `static int frame` incremented
-once per loop iteration in `main.c`): the two counters are related but not
-by a fixed additive offset — some pairs of raw frame counts exactly one
-half-period apart (`--max-frames=400` vs `416`, for a 32-frame blink
-period) landed on the *same* blink phase instead of the expected opposite
-one, most likely from a slightly-longer-than-one-frame first loop iteration
-(the initial full board render) permanently shifting the phase alignment
-between "raw frames elapsed since power-on" and "loop iterations executed
-so far", plus the constant startup overhead before `main()`'s loop even
-starts. **Consequence for later tasks**: don't compute two `--max-frames`
-values from the blink formula and assume they land on opposite phases —
-run a quick sweep (a handful of candidate frame counts, sampled
-programmatically) and confirm the two states differ before trusting them as
-"the two blink phases". Task 9 used `--max-frames=800` (pip on) and
-`--max-frames=1200` (pip off), found this way, not the naively-computed
-400/416.
+**Headless screenshot timing caveat, sharpened, then root-caused (fix round
+1)**: section 2's `--max-frames=N` recipe is confirmed to need N well past
+400 in practice — RetroArch's own "content loaded" notification banner was
+still visible at `--max-frames=40` in this task's testing (it cleared by
+400).
+
+Task 9's first pass also found that the raw RetroArch frame count did not
+reliably predict the ROM's own internal frame counter (a `frame` variable
+incremented once per loop iteration in `main.c`): pairs of raw frame counts
+exactly one half-period apart (e.g. `--max-frames=400` vs `416`, for a
+32-frame blink period) sometimes landed on the *same* blink phase instead
+of the expected opposite one. First hypothesis (wrong, logged here as a
+worked example of an unproven guess being called out in review) was a
+one-off phase shift from a slower-than-one-frame first loop iteration. The
+real cause, found by a reviewer and confirmed by measurement: every loop
+iteration called `render_hud_now()`, which called `view_hud()`
+unconditionally — `view_hud()` calls `board_count()` twice, each a full
+`BOARD_H * BOARD_W` = 768-cell scan, so every single frame paid ~1536 cell
+reads (through `board_get()`'s halo-relative indexing) purely to support a
+blink that only ever changes one tile. On 816-tcc-compiled 65816 code this
+recurring per-frame cost was enough, on some frames, to make the loop take
+longer than one VBlank period end-to-end, producing a "lag frame" (see
+`WaitForVBlank`'s own doc comment on lag-frames, §3 above) — a *recurring*,
+not one-off, source of drift between raw elapsed frames and completed loop
+iterations, which explains the non-monotonic on/off pattern originally
+observed across `400/416/800/1200/2000/4000/8000`.
+
+**Fix**: gate the expensive `view_hud()` recomputation behind a `hud_dirty`
+flag (`src/snes/render.c`), refreshed only at startup and whenever
+`render_hud_dirty()` is called (from task 10 on, alongside `board_dirty`);
+the per-frame blink itself only toggles one cached tile value between its
+stored color and `TILE_EMPTY` — no board walk. After this fix, `--max-frames`
+pairs exactly 16 apart reliably land on opposite blink phases (confirmed at
+`600`/`616`, `1000`/`1016`, `2000`/`2016`, all three pairs opposite — see
+`.superpowers/sdd/2026-09-14-immigration/task-9-report.md`'s "Fix round 1"
+section for the actual screenshots/pixel readings). **Consequence for later
+tasks**: per-frame render-preparation functions must stay O(1) (or at least
+comfortably sub-frame) — anything that re-walks the board or does
+comparable work every single frame, gated by nothing, is a lag-frame risk
+on this CPU, not just a screenshot-timing inconvenience. Still worth a
+quick sweep/measurement rather than a guess when verifying a blink or
+any other periodic effect on screen, since a regression here silently
+un-does the 1:1 loop/VBlank guarantee without any compiler warning.
