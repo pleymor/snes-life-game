@@ -21,8 +21,15 @@ CFLAGS += -Isrc/core
 
 GFX4SNES := $(PVSNESLIB_HOME)/devkitsnes/tools/gfx4snes
 
-data/tiles.pic data/tiles.pal: data/tiles.bmp
+# A single explicit multi-target rule would run its recipe once per
+# out-of-date target under GNU Make 3.81 (no grouped-target `&:` support
+# here), invoking gfx4snes twice on a clean build and racing under `-j`;
+# gfx4snes writes both files from one invocation, so only .pic runs the
+# recipe and .pal is declared to come along for free.
+data/tiles.pic: data/tiles.bmp
 	$(GFX4SNES) -s 8 -o 16 -u 16 -t bmp -e 0 -p -i $<
+
+data/tiles.pal: data/tiles.pic ;
 
 data/tiles.bmp: tools/mktiles.py
 	python3 $<
