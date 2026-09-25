@@ -33,3 +33,28 @@ rom:
 	@exit 1
 
 endif
+
+CORE_SRC  := $(wildcard src/core/*.c)
+TEST_SRC  := $(wildcard tests/*.c)
+HOSTFLAGS := -std=c89 -pedantic -Wall -Wextra -Werror -Isrc/core -Itests -g \
+             -fsanitize=address,undefined
+
+.PHONY: test clean
+test: build/run-tests
+	./build/run-tests
+
+build/run-tests: $(CORE_SRC) $(TEST_SRC) | build
+	$(CC) $(HOSTFLAGS) $^ -o $@
+
+build:
+	mkdir -p build
+
+clean:
+	rm -rf build
+
+# `make` seul lance les tests, pour que le cycle rouge-vert reste immédiat.
+# `make all` y ajoute la ROM, une fois la tâche 0 passée.
+.DEFAULT_GOAL := test
+.PHONY: all
+all: test
+	$(MAKE) rom
