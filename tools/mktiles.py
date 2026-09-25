@@ -72,6 +72,20 @@ def range_dot():
         t[y][x] = 1
     return t
 
+def write_indexed_bmp(path, width, height, palette16, img):
+    """BMP 8 bits indexé, lignes du bas vers le haut, chaque ligne alignée
+    sur 4 octets. `img` est une matrice [height][width] d'index de palette,
+    `palette16` une liste de 16 tuples (r, g, b)."""
+    row_pad = (-width) % 4
+    pixels = b''.join(bytes(img[y]) + b'\0' * row_pad for y in reversed(range(height)))
+    palette = b''.join(struct.pack('<BBBB', b, g, r, 0) for (r, g, b) in palette16)
+    offset = 14 + 40 + len(palette)
+    out = (struct.pack('<2sIHHI', b'BM', offset + len(pixels), 0, 0, offset)
+           + struct.pack('<IiiHHIIiiII', 40, width, height, 1, 8, 0, len(pixels), 2835, 2835, 16, 16)
+           + palette + pixels)
+    path.parent.mkdir(exist_ok=True)
+    path.write_bytes(out)
+
 tiles = [blank(), range_dot(), cell(2, 3), cell(4, 5)]      # 0..3
 tiles += [glyph(str(d), 6) for d in range(10)]              # 4..13
 tiles += [disc(6, True), disc(7, False)]                    # 14, 15
@@ -86,16 +100,29 @@ for i, t in enumerate(tiles):
         for x in range(TS):
             img[oy + y][ox + x] = t[y][x]
 
-# BMP 8 bits indexé, lignes du bas vers le haut, chaque ligne alignée sur 4
-row_pad = (-W) % 4
-pixels = b''.join(bytes(img[y]) + b'\0' * row_pad for y in reversed(range(H)))
-palette = b''.join(struct.pack('<BBBB', b, g, r, 0) for (r, g, b) in PALETTE)
-offset = 14 + 40 + len(palette)
-out = (struct.pack('<2sIHHI', b'BM', offset + len(pixels), 0, 0, offset)
-       + struct.pack('<IiiHHIIiiII', 40, W, H, 1, 8, 0, len(pixels), 2835, 2835, 16, 16)
-       + palette + pixels)
+tiles_path = pathlib.Path(__file__).resolve().parent.parent / 'data' / 'tiles.bmp'
+write_indexed_bmp(tiles_path, W, H, PALETTE, img)
+print(f"{tiles_path} : {W}x{H}, {len(tiles)} emplacements")
 
-path = pathlib.Path(__file__).resolve().parent.parent / 'data' / 'tiles.bmp'
-path.parent.mkdir(exist_ok=True)
-path.write_bytes(out)
-print(f"{path} : {W}x{H}, {len(tiles)} emplacements")
+# Planche de sprites : un unique emplacement 8x8, le cadre du curseur.
+# Quatre segments d'angle en blanc (index 1) sur fond transparent (index 0 :
+# sur un sprite SNES, la couleur 0 de la palette est toujours transparente,
+# quelle que soit sa valeur RGB). Séparée de data/tiles.bmp car sprites et
+# fonds ne partagent ni VRAM ni palette sur SNES.
+SPRITE_PALETTE = [(0, 0, 0), (0xE8, 0xEC, 0xF4)] + [(0, 0, 0)] * 14
+
+def cursor_frame():
+    t = blank()
+    corners = [
+        (0, 0), (1, 0), (0, 1),   # coin haut-gauche
+        (7, 0), (6, 0), (7, 1),   # coin haut-droit
+        (0, 7), (1, 7), (0, 6),   # coin bas-gauche
+        (7, 7), (6, 7), (7, 6),   # coin bas-droit
+    ]
+    for x, y in corners:
+        t[y][x] = 1
+    return t
+
+sprites_path = pathlib.Path(__file__).resolve().parent.parent / 'data' / 'sprites.bmp'
+write_indexed_bmp(sprites_path, TS, TS, SPRITE_PALETTE, cursor_frame())
+print(f"{sprites_path} : {TS}x{TS}, 1 emplacement (curseur)")

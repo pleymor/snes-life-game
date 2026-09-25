@@ -558,3 +558,93 @@ exactly the two binary output extensions it produces (confirmed in section
 Task 7 extends this file — the tilemap array, `fillTilemap()`, and the
 `dmaCopyVram` call are the mechanism it needs; the sprite/pad/vblank code is
 there so every "Produces" item has one real, verified call to point at.
+
+## 7. Addendum — verified in Task 9: VBlank discipline, sharing a BG's tile
+set with a second BG, and the OAM/NMI question
+
+Task 9 added the HUD (BG2) and the cursor sprite, and needed a firm answer
+to "does `oamSet`/`oamSetEx` need a manual VRAM/OAM DMA the way
+`dmaCopyVram` does, or does PVSnesLib already move sprites to the PPU on
+its own?"
+
+**Answer, read straight out of the shipped header**
+(`$PVSNESLIB_HOME/pvsneslib/include/snes/interrupt.h`, the `\brief` block
+above `WaitForVBlank`): PVSnesLib installs a default NMI (VBlank interrupt)
+handler that, on every VBlank that isn't a "lag-frame", **automatically
+transfers the `oamMemory` RAM buffer to the PPU's OAM**, before calling the
+optional `nmi_handler` callback. `oamSet`/`oamSetEx`/`oamSetXY`/etc. only
+write into that RAM buffer (confirmed by the `oamGetX`/`oamGetY` macros in
+`snes/sprite.h`, which read straight out of `oamMemory[id + ...]`) — they
+never touch the PPU directly. So: **no manual step is needed for sprites**.
+Calling `oamSet`/`oamSetEx` at any point in the frame (not just inside a
+VBlank window) is safe and is in fact how every PVSnesLib example does it;
+there is nothing for a `render_vblank()`-style function to do for the
+cursor. This is different from tilemap/CGRAM updates, which really do need
+`dmaCopyVram`/`dmaCopyCGram` and really do need to happen during VBlank (or
+forced blank) to avoid tearing — `oamMemory` is the one exception, because
+PVSnesLib's own ISR does that DMA for you every frame.
+
+**VBlank discipline pattern used for the tilemap DMAs**: `render_board_now()`
+and `render_hud_now()` (`src/snes/render.c`) only compute into a static
+buffer and set a `static bool_t ..._pending = TRUE` flag; a new
+`render_vblank()` function, called right after `WaitForVBlank()` returns
+(never before), does the actual `dmaCopyVram()` calls and clears the flags.
+Reason: `render_board_now()` walks all `BOARD_H * BOARD_W` (768) cells
+through `view_board()` before it can even start a DMA, which is measurably
+longer than the ~2273-cycle VBlank window on NTSC — issuing the DMA
+immediately after that computation (the way Task 8's `render_board_now()`
+used to, with its own `WaitForVBlank()` call baked in) risks landing the
+transfer after the PPU has already left VBlank, which shows up as tearing.
+Splitting "prepare" from "transfer" and doing the actual DMA calls back to
+back right after a single `WaitForVBlank()` keeps every VRAM write inside
+one VBlank window per frame, and keeps the game loop to exactly one
+`WaitForVBlank()` call per frame (three separate waits, one per render
+call, would have divided the effective frame rate by three).
+
+**Sharing one BG's tile set with a second BG**: `bgInitTileSet()` (used
+once, for BG1/`bgNumber 0`) both uploads the tiles/palette to VRAM/CGRAM
+*and* points BG1's own tile-graphics register at them. A second BG that
+wants to reuse the same uploaded tiles (Task 9's BG2/HUD, `bgNumber 1`,
+reusing BG1's tile art) does **not** call `bgInitTileSet()` again — that
+would re-upload — it calls `bgSetGfxPtr(bgNumber, address)` alone, with the
+exact same VRAM `address` value used by the original `bgInitTileSet()`
+call. Confirmed against the shipped `DynamicSprite` example's pattern of
+independently pointing multiple layers/objects at shared VRAM addresses,
+and confirmed working on screen (both BG1 and BG2 render the digits/glyphs
+identically from the one tile sheet). `bgSetMapPtr(bgNumber, address,
+SC_32x32)` is still called separately per BG (each BG needs its own
+tilemap address; that part isn't shared). `bgSetEnable(bgNumber)` /
+`bgSetDisable(bgNumber)` (declared in `snes/background.h`) are the
+counterparts to flip a BG's visibility on/off after `setMode()`.
+
+**Sprite VRAM address is a plain word address in the same space as BG
+tiles**, not a distinct "8K-word steps" unit as one line of its doc comment
+suggests — confirmed against the shipped `DynamicSprite` example, which
+puts sprite graphics at `0x0000`/`0x1000` and BG tile graphics at `0x2000`
+in the same call sequence, i.e. the same word-addressed VRAM space BG
+tiles/maps use (matching `dmaCopyVram`'s own `address` convention recorded
+in section 3 above). Task 9 places the cursor's one 8×8 tile at `0x2000`,
+between the two BG tilemaps (`0x0000`–`0x07FF`) and the shared BG tile data
+(`0x4000`+), with room to spare on both sides.
+
+**Headless screenshot timing caveat, sharpened**: section 2's
+`--max-frames=N` recipe is confirmed to need N well past 400 in practice —
+RetroArch's own "content loaded" notification banner was still visible at
+`--max-frames=40` in this task's testing (it cleared by 400). More
+importantly, **the raw RetroArch frame count is *not* a reliable predictor
+of the ROM's own internal frame counter** (a `static int frame` incremented
+once per loop iteration in `main.c`): the two counters are related but not
+by a fixed additive offset — some pairs of raw frame counts exactly one
+half-period apart (`--max-frames=400` vs `416`, for a 32-frame blink
+period) landed on the *same* blink phase instead of the expected opposite
+one, most likely from a slightly-longer-than-one-frame first loop iteration
+(the initial full board render) permanently shifting the phase alignment
+between "raw frames elapsed since power-on" and "loop iterations executed
+so far", plus the constant startup overhead before `main()`'s loop even
+starts. **Consequence for later tasks**: don't compute two `--max-frames`
+values from the blink formula and assume they land on opposite phases —
+run a quick sweep (a handful of candidate frame counts, sampled
+programmatically) and confirm the two states differ before trusting them as
+"the two blink phases". Task 9 used `--max-frames=800` (pip on) and
+`--max-frames=1200` (pip off), found this way, not the naively-computed
+400/416.

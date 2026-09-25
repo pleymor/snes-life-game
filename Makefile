@@ -25,7 +25,10 @@ GFX4SNES := $(PVSNESLIB_HOME)/devkitsnes/tools/gfx4snes
 # out-of-date target under GNU Make 3.81 (no grouped-target `&:` support
 # here), invoking gfx4snes twice on a clean build and racing under `-j`;
 # gfx4snes writes both files from one invocation, so only .pic runs the
-# recipe and .pal is declared to come along for free.
+# recipe and .pal is declared to come along for free. Same reasoning for
+# data/sprites.bmp: tools/mktiles.py writes both data/tiles.bmp and
+# data/sprites.bmp in the one invocation triggered by data/tiles.bmp's own
+# rule below, so data/sprites.bmp is declared to come along for free too.
 data/tiles.pic: data/tiles.bmp
 	$(GFX4SNES) -s 8 -o 16 -u 16 -t bmp -e 0 -p -i $<
 
@@ -34,14 +37,22 @@ data/tiles.pal: data/tiles.pic ;
 data/tiles.bmp: tools/mktiles.py
 	python3 $<
 
+data/sprites.bmp: data/tiles.bmp ;
+
+data/sprites.pic: data/sprites.bmp
+	$(GFX4SNES) -s 8 -o 16 -u 16 -t bmp -e 0 -p -i $<
+
+data/sprites.pal: data/sprites.pic ;
+
 include $(PVSNESLIB_HOME)/devkitsnes/snes_rules
 
-# src/snes/tiles.asm .incbin's data/tiles.pic and data/tiles.pal (via the
-# gfx4snes-generated data/tiles_data.as); make does not see through that
-# .include, so the assembler's own prerequisite (data/tiles.bmp -> ... ->
-# the .obj rule below) must be declared explicitly or a from-clean build
-# tries to assemble before the art is converted.
+# src/snes/tiles.asm/sprites.asm .incbin data/tiles.{pic,pal} and
+# data/sprites.{pic,pal} (via the gfx4snes-generated data/*_data.as); make
+# does not see through that .include, so the assembler's own prerequisite
+# (data/*.bmp -> ... -> the .obj rules below) must be declared explicitly
+# or a from-clean build tries to assemble before the art is converted.
 src/snes/tiles.obj: data/tiles.pic data/tiles.pal
+src/snes/sprites.obj: data/sprites.pic data/sprites.pal
 
 .PHONY: rom
 rom: buildWithSummary
