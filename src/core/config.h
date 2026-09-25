@@ -7,7 +7,7 @@
 
 #define BOARD_W            32
 #define BOARD_H            24
-#define BUDGET              2   /* poses par tour */
+#define BUDGET              3   /* poses par tour */
 #define RANGE_RADIUS        2   /* distance de Chebyshev */
 #define RAMPUP_ROUND       16   /* premier round à deux ticks */
 #define TICKS_AFTER_RAMPUP  2

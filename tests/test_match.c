@@ -33,18 +33,15 @@ static void block(int x, int y, Cell who)
 
 static void test_trois_poses_puis_le_budget_est_epuise(void)
 {
-    /* Malgré son nom (hérité de BUDGET=3 à l'écriture du test), ce test
-       vérifie l'épuisement du budget quel que soit BUDGET : deux poses
-       passent, la troisième — pourtant à portée — est refusée. Tâche 7 a
-       arrêté BUDGET à 2 (voir docs/balance.md). */
     match_start(&m);
     T_EQ(m.round, 1);
     T_EQ(m.turn, CELL_P1);
     T_TRUE(match_place(&m, 5, 13));
     T_TRUE(match_place(&m, 8, 13));
+    T_TRUE(match_place(&m, 5, 16));
     T_EQ(m.placed, BUDGET);
-    T_FALSE(match_place(&m, 5, 16));   /* troisième : refusée, budget épuisé */
-    T_EQ(board_get(&m.board, 5, 16), CELL_EMPTY);
+    T_FALSE(match_place(&m, 8, 16));   /* quatrième : refusée */
+    T_EQ(board_get(&m.board, 8, 16), CELL_EMPTY);
 }
 
 static void test_une_pose_hors_portee_est_refusee(void)
