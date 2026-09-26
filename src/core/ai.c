@@ -9,12 +9,15 @@
 /* Décalage, dans une fenêtre aplatie, de la case (r, r) du coin : les
    lignes font AI_WIN cases. */
 #define AI_CORNER(r)  ((r) * (AI_WIN + 1))
+/* Plus grande portée lue autour d'une case : le rayon de la fenêtre. */
+#define AI_PAD        (2 * AI_MAX_DEPTH)       /* 4 */
 #define AI_MAX_CANDS  256
 #define AI_TOPK_EASY  8
 #define AI_TOPK_MAX   32
 
 /* Tout est en portée fichier : la pile du 65816 ne supporterait rien de
    cette taille. */
+static u8    ws[AI_WIN][AI_WIN];   /* fenêtre chargée, jamais écrite par un tick */
 static u8    wa[AI_WIN][AI_WIN];
 static u8    wb[AI_WIN][AI_WIN];
 static Board work;
@@ -36,16 +39,50 @@ static unsigned long xs32(unsigned long *s)
     return x;
 }
 
+/* ---- repliage torique par tables ---- */
+
+/* wrap_col[x + AI_PAD] : colonne de stockage (halo compris) de la colonne
+   de jeu x repliée, pour -AI_PAD <= x < BOARD_W + AI_PAD. row_off[y +
+   AI_PAD] : décalage, depuis &b->c[0][0], de la ligne de stockage de la
+   ligne de jeu y repliée. Calculées une fois : plus aucun BOARD_WRAP ni
+   aucune multiplication par BSTRIDE (34, qui n'est pas une puissance de
+   deux) dans les boucles qui lisent le plateau autour d'une case. */
+static u8     wrap_col[BOARD_W + 2 * AI_PAD];
+static int    row_off[BOARD_H + 2 * AI_PAD];
+static bool_t wrap_ready = FALSE;
+
+static void wrap_init(void)
+{
+    int k;
+    for (k = 0; k < BOARD_W + 2 * AI_PAD; k++) {
+        wrap_col[k] = (u8)(BOARD_WRAP_X(k - AI_PAD) + 1);
+    }
+    for (k = 0; k < BOARD_H + 2 * AI_PAD; k++) {
+        row_off[k] = (BOARD_WRAP_Y(k - AI_PAD) + 1) * BSTRIDE;
+    }
+    wrap_ready = TRUE;
+}
+
 /* ---- la fenêtre locale ---- */
 
-/* Charge le carré de rayon 2 * depth autour de (cx, cy), centré dans wa. */
+/* Charge le carré de rayon 2 * depth autour de (cx, cy), centré dans ws :
+   une ligne de stockage par ligne de fenêtre, une table de colonnes
+   repliées, aucun appel par case. */
 static void win_load(const Board *b, int cx, int cy, int depth)
 {
-    int r = 2 * depth, i, j;
-    for (j = -r; j <= r; j++) {
-        for (i = -r; i <= r; i++) {
-            wa[AI_C + j][AI_C + i] = (u8)board_get(b, BOARD_WRAP_X(cx + i), BOARD_WRAP_Y(cy + j));
+    int r = 2 * depth, len = 2 * r + 1, i, j;
+    const u8  *base = &b->c[0][0];
+    const u8  *cols = &wrap_col[cx + AI_PAD - r];
+    const int *rows = &row_off[cy + AI_PAD - r];
+    u8 *q = &ws[0][0] + AI_CORNER(AI_C - r);
+
+    if (!wrap_ready) wrap_init();
+    for (j = 0; j < len; j++) {
+        const u8 *row = base + rows[j];
+        for (i = 0; i < len; i++) {
+            q[i] = row[cols[i]];
         }
+        q += AI_WIN;
     }
 }
 
@@ -104,13 +141,12 @@ static int win_net(const u8 *w, int radius, Cell me)
     return net;
 }
 
-/* Simule `depth` ticks en partant de `wa`, en alternant wb et wa comme
-   destinations, et rend le bilan sur la zone mesurée. `wa` sert de source
-   au premier tick puis se fait écraser : l'appelant le recharge avant la
-   passe suivante. */
+/* Simule `depth` ticks en partant de ws, en alternant wb et wa comme
+   destinations, et rend le bilan sur la zone mesurée. ws n'est jamais
+   écrit : la passe suivante repart de la même fenêtre sans la recharger. */
 static int win_run(int depth, Cell me)
 {
-    const u8 *src = &wa[0][0];
+    const u8 *src = &ws[0][0];
     int t;
 
     for (t = 0; t < depth; t++) {
@@ -128,8 +164,10 @@ int ai_eval_local(const Board *b, Cell who, int x, int y, int depth)
     win_load(b, x, y, depth);
     without = win_run(depth, who);
 
-    win_load(b, x, y, depth);
-    wa[AI_C][AI_C] = (u8)who;
+    /* Une seule lecture du plateau par évaluation : la seconde passe pose
+       la cellule directement dans ws, que la prochaine évaluation
+       rechargera de toute façon. */
+    ws[AI_C][AI_C] = (u8)who;
     with = win_run(depth, who);
 
     return with - without;
