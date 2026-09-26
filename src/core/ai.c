@@ -175,35 +175,33 @@ int ai_eval_local(const Board *b, Cell who, int x, int y, int depth)
 
 /* ---- les candidats ---- */
 
-static int live_neighbors(const Board *b, int x, int y)
-{
-    int dx, dy, n = 0;
-    for (dy = -1; dy <= 1; dy++) {
-        for (dx = -1; dx <= 1; dx++) {
-            if (dx == 0 && dy == 0) continue;
-            if (board_get(b, BOARD_WRAP_X(x + dx), BOARD_WRAP_Y(y + dy)) != CELL_EMPTY) n++;
-        }
-    }
-    return n;
-}
-
 /* max(0, 4 - distance de Chebyshev à l'adversaire le plus proche) : pousse
    l'IA vers le contact, où l'Immigration Game permet de retourner des
-   naissances. */
-static int enemy_pull(const Board *b, Cell foe, int x, int y)
+   naissances. L'anneau de distance 1 est déjà connu de l'appelant (le
+   comptage des voisins le lit) ; celle-ci balaie les anneaux 2 puis 3 et
+   rend dès le premier qui contient un adversaire. Au-delà, 4 - d <= 0 :
+   inutile de regarder. Lecture par les tables de repliage. */
+static int enemy_pull_far(const Board *b, u8 foe, int x, int y)
 {
-    int dx, dy, best = 0;
-    for (dy = -4; dy <= 4; dy++) {
-        for (dx = -4; dx <= 4; dx++) {
-            int a, c;
-            if (board_get(b, BOARD_WRAP_X(x + dx), BOARD_WRAP_Y(y + dy)) != foe) continue;
-            a = (dx < 0) ? -dx : dx;
-            c = (dy < 0) ? -dy : dy;
-            if (c > a) a = c;
-            if (4 - a > best) best = 4 - a;
+    const u8  *base = &b->c[0][0];
+    const u8  *cx = &wrap_col[x + AI_PAD];   /* cx[dx], |dx| <= AI_PAD */
+    const int *ry = &row_off[y + AI_PAD];    /* ry[dy], |dy| <= AI_PAD */
+    int d, k;
+
+    for (d = 2; d <= 3; d++) {
+        const u8 *top = base + ry[-d];
+        const u8 *bot = base + ry[d];
+        int left = cx[-d], right = cx[d];
+        for (k = -d; k <= d; k++) {
+            int c = cx[k];
+            if (top[c] == foe || bot[c] == foe) return 4 - d;
+        }
+        for (k = 1 - d; k <= d - 1; k++) {
+            const u8 *row = base + ry[k];
+            if (row[left] == foe || row[right] == foe) return 4 - d;
         }
     }
-    return best;
+    return 0;
 }
 
 static int scan_index(const Cand *c) { return (int)c->y * BOARD_W + (int)c->x; }
@@ -211,24 +209,46 @@ static int scan_index(const Cand *c) { return (int)c->y * BOARD_W + (int)c->x; }
 /* Remplit `cands` dans l'ordre de balayage : y croissant puis x croissant.
    C'est cet ordre qui sert de départage. `range_mask` est déjà celui du
    joueur courant (fix round 1 : m->range_mask, tenu à jour par
-   begin_turn() dans match.c pour tout le tour), donc plus recalculé ici. */
+   begin_turn() dans match.c pour tout le tour), donc plus recalculé ici.
+   `cur` doit avoir été wrappé : les voisins se lisent dans le halo, à
+   décalages constants depuis un pointeur de ligne, comme life_tick(). */
 static int collect(const Board *cur, const u8 (*range_mask)[BOARD_W], Cell foe)
 {
     int x, y, n = 0;
+    const u8 *row = &cur->c[1][1];
+    const u8 *mrow = &range_mask[0][0];
+    u8 f = (u8)foe;
 
+    if (!wrap_ready) wrap_init();
     for (y = 0; y < BOARD_H; y++) {
         for (x = 0; x < BOARD_W; x++) {
-            int nb;
-            if (board_get(cur, x, y) != CELL_EMPTY) continue;
-            if (!range_mask[y][x]) continue;
-            nb = live_neighbors(cur, x, y);
+            const u8 *p;
+            u8 v;
+            int nb = 0;
+            bool_t adj = FALSE;
+
+            if (row[x] != CELL_EMPTY) continue;
+            if (!mrow[x]) continue;
+
+            p = row + x - BSTRIDE - 1;
+            v = p[0];               if (v) { nb++; if (v == f) adj = TRUE; }
+            v = p[1];               if (v) { nb++; if (v == f) adj = TRUE; }
+            v = p[2];               if (v) { nb++; if (v == f) adj = TRUE; }
+            v = p[BSTRIDE];         if (v) { nb++; if (v == f) adj = TRUE; }
+            v = p[BSTRIDE + 2];     if (v) { nb++; if (v == f) adj = TRUE; }
+            v = p[2 * BSTRIDE];     if (v) { nb++; if (v == f) adj = TRUE; }
+            v = p[2 * BSTRIDE + 1]; if (v) { nb++; if (v == f) adj = TRUE; }
+            v = p[2 * BSTRIDE + 2]; if (v) { nb++; if (v == f) adj = TRUE; }
+
             if (nb == 0) continue;   /* posée dans le vide, elle meurt sans rien produire */
             if (n >= AI_MAX_CANDS) return n;
             cands[n].x = (u8)x;
             cands[n].y = (u8)y;
-            cands[n].pre = (short)(2 * nb + enemy_pull(cur, foe, x, y));
+            cands[n].pre = (short)(2 * nb + (adj ? 3 : enemy_pull_far(cur, f, x, y)));
             n++;
         }
+        row += BSTRIDE;
+        mrow += BOARD_W;
     }
     return n;
 }
@@ -238,21 +258,36 @@ static void swap_cand(int i, int j)
     Cand t = cands[i]; cands[i] = cands[j]; cands[j] = t;
 }
 
-/* Amène les k meilleurs par `pre` en tête. */
+/* `pre` vaut 2 * voisins (1 à 8) + attraction (0 à 3) : de 2 à 19. */
+#define AI_PRE_SPAN   (2 * 8 + 3 + 1)
+
+static int  pre_pos[AI_PRE_SPAN];
+static Cand picked[AI_TOPK_MAX];
+
+/* Amène les k meilleurs en tête, triés par `pre` décroissant puis par
+   ordre de balayage : un tri par dénombrement, stable, tronqué à k. Même
+   résultat qu'un tri par sélection sur cette clé totale (cands arrive dans
+   l'ordre de balayage), mais en deux passages sur n au lieu de k. */
 static void select_top(int n, int k)
 {
-    int i, j;
-    for (i = 0; i < k && i < n; i++) {
-        int best = i;
-        for (j = i + 1; j < n; j++) {
-            if (cands[j].pre > cands[best].pre ||
-                (cands[j].pre == cands[best].pre &&
-                 scan_index(&cands[j]) < scan_index(&cands[best]))) {
-                best = j;
-            }
-        }
-        if (best != i) swap_cand(i, best);
+    int i, p, pos = 0;
+
+    for (p = 0; p < AI_PRE_SPAN; p++) pre_pos[p] = 0;
+    for (i = 0; i < n; i++) pre_pos[cands[i].pre]++;
+    for (p = AI_PRE_SPAN - 1; p >= 0; p--) {
+        int c = pre_pos[p];
+        pre_pos[p] = pos;
+        pos += c;
     }
+    for (i = 0; i < n; i++) {
+        p = cands[i].pre;
+        if (pre_pos[p] < k) {
+            picked[pre_pos[p]] = cands[i];
+        }
+        pre_pos[p]++;
+    }
+    if (n < k) k = n;
+    for (i = 0; i < k; i++) cands[i] = picked[i];
 }
 
 /* Amène les trois meilleurs par score évalué en tête, cands et scores
@@ -303,8 +338,10 @@ void ai_begin(AiJob *j, const Match *m, AiLevel lvl)
     j->foe   = (j->me == CELL_P1) ? CELL_P2 : CELL_P1;
     j->made  = 0;
 
-    /* `work` n'est jamais wrappé : rien ici ne lit le halo. */
+    /* collect() lit les voisins dans le halo : m->board ne l'a pas
+       forcément à jour (match_place() ne wrappe pas). */
     work = m->board;
+    board_wrap(&work);
 
     collect_round(j, m);
 }
@@ -354,6 +391,7 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
            en tenant compte de celle-ci, ce qui permet de trouver des
            combinaisons de deux ou trois cellules. */
         board_set(&work, (int)cands[pick].x, (int)cands[pick].y, j->me);
+        board_wrap(&work);
         j->made++;
 
         if (j->made >= BUDGET) {
