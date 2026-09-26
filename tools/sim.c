@@ -13,7 +13,7 @@ typedef struct {
     long pop_winner;  /* somme des populations gagnantes */
 } Stats;
 
-static Winner play_one(unsigned long *rng, Stats *s, AiLevel lvl_p1, AiLevel lvl_p2)
+static Winner play_one(Rng *rng, Stats *s, AiLevel lvl_p1, AiLevel lvl_p2)
 {
     int guard = 0;
     Winner w;
@@ -60,9 +60,14 @@ int main(int argc, char **argv)
     s.pop_winner = 0;
 
     for (i = 0; i < games; i++) {
-        unsigned long rng = seed + (unsigned long)i;
+        /* Même état de 32 bits qu'avant le passage aux deux moitiés de 16
+           bits (ai.h) : seed + i, tronqué à 32 bits. */
+        unsigned long v = (seed + (unsigned long)i) & 0xFFFFFFFFUL;
+        Rng rng;
         AiLevel lvl_p1, lvl_p2;
         Winner w;
+
+        rng_seed(&rng, (unsigned short)(v >> 16), (unsigned short)(v & 0xFFFFUL));
 
         if (is_mixed) {
             /* Change de camp une partie sur deux : chaque niveau joue P1 la

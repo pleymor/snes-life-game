@@ -5,10 +5,26 @@
 
 typedef enum { AI_EASY = 0, AI_NORMAL = 1 } AiLevel;
 
+/* État d'un xorshift 32 bits (spec § 6.2), en deux moitiés de 16 bits :
+   `long` ne fait que 16 bits pour le compilateur de la console
+   (docs/snes-notes.md § 10), un `unsigned long` n'y porterait pas les 32
+   bits. La valeur vaut hi * 65536 + lo ; elle ne doit jamais être nulle. */
+typedef struct { unsigned short hi, lo; } Rng;
+
+/* Pose l'état à hi * 65536 + lo. */
+void rng_seed(Rng *r, unsigned short hi, unsigned short lo);
+
+/* Un pas de xorshift32 : x ^= x << 13 ; x ^= x >> 17 ; x ^= x << 5, sur
+   32 bits exactement, sur l'hôte comme sur la console. */
+void rng_next(Rng *r);
+
+/* L'état courant modulo p, pour 1 <= p <= 255. */
+unsigned int rng_mod(const Rng *r, unsigned int p);
+
 /* rng : état d'un xorshift32 possédé par l'appelant, jamais nul.
    Ignoré au niveau normal, qui est purement déterministe.
    Rend le nombre de coups écrits dans `out`, de 0 à BUDGET. */
-int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET]);
+int ai_choose(const Match *m, AiLevel lvl, Rng *rng, Move out[BUDGET]);
 
 /* Étapes d'un tour (AiJob.phase), dans l'ordre : copie codée du plateau
    et liste des cases vides à portée (une fois par tour) ; collecte des
@@ -67,7 +83,7 @@ void ai_begin(AiJob *j, const Match *m, AiLevel lvl);
    en permet (voir les AI_COST_...). TRUE quand tout est fini : `j->out`/
    `j->made` sont alors le résultat complet, au format de ai_choose(). Le
    choix ne dépend pas du découpage en appels. */
-bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget);
+bool_t ai_step(AiJob *j, const Match *m, Rng *rng, int budget);
 
 /* Gain net que produit la pose de `who` en (x, y) après `depth` ticks :
    cellules gagnées par `who` moins celles gagnées par l'adversaire, mesuré

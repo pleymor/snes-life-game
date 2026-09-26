@@ -52,17 +52,43 @@ typedef struct { u8 x, y; short pre; } Cand;
 static Cand all_c[AI_MAX_CANDS];   /* tous les candidats, ordre de balayage */
 static Cand cands[AI_TOPK_MAX];    /* les k retenus, puis triés par score */
 
-/* Masqué sur 32 bits pour que la suite soit identique sur l'hôte, où `long`
-   fait souvent 64 bits, et sur la console, où il en fait 32. Sans quoi le
-   simulateur et la ROM divergeraient. */
-static unsigned long xs32(unsigned long *s)
+/* ---- xorshift32 sur deux moitiés de 16 bits ----
+
+   Chaque décalage de la valeur de 32 bits se répartit entre les deux
+   moitiés, avec ce qui passe d'une moitié à l'autre. Les conversions en
+   unsigned short tronquent à 16 bits, que `int` fasse 16 bits (console)
+   ou 32 (hôte). */
+
+void rng_seed(Rng *r, unsigned short hi, unsigned short lo)
 {
-    unsigned long x = *s & 0xFFFFFFFFUL;
-    x ^= (x << 13) & 0xFFFFFFFFUL;
-    x ^= x >> 17;
-    x ^= (x <<  5) & 0xFFFFFFFFUL;
-    *s = x;
-    return x;
+    r->hi = hi;
+    r->lo = lo;
+}
+
+void rng_next(Rng *r)
+{
+    unsigned short hi = r->hi, lo = r->lo;
+
+    /* x ^= x << 13 */
+    hi = (unsigned short)(hi ^ (unsigned short)((unsigned short)(hi << 13) | (lo >> 3)));
+    lo = (unsigned short)(lo ^ (unsigned short)(lo << 13));
+    /* x ^= x >> 17 : la moitié haute, décalée d'un bit, tombe dans la basse */
+    lo = (unsigned short)(lo ^ (hi >> 1));
+    /* x ^= x << 5 */
+    hi = (unsigned short)(hi ^ (unsigned short)((unsigned short)(hi << 5) | (lo >> 11)));
+    lo = (unsigned short)(lo ^ (unsigned short)(lo << 5));
+
+    r->hi = hi;
+    r->lo = lo;
+}
+
+unsigned int rng_mod(const Rng *r, unsigned int p)
+{
+    /* (hi * 65536 + lo) mod p, sans jamais dépasser 16 bits : 65536 mod p
+       s'écrit ((65535 mod p) + 1) mod p, et p <= 255 garde le produit
+       sous 255 * 255. */
+    unsigned int base = ((65535U % p) + 1U) % p;
+    return (((unsigned int)r->hi % p) * base + (unsigned int)r->lo % p) % p;
 }
 
 /* ---- tables : repliage torique, codes, règle du jeu ---- */
@@ -673,7 +699,7 @@ static int step_cost(const AiJob *j)
     }
 }
 
-bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
+bool_t ai_step(AiJob *j, const Match *m, Rng *rng, int budget)
 {
     int spent = 0;
 
@@ -772,7 +798,8 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
         if (j->lvl == AI_EASY) {
             int pool = (j->top < 3) ? j->top : 3;
             select_top3_by_score(j->top);
-            pick = (int)(xs32(rng) % (unsigned long)pool);
+            rng_next(rng);
+            pick = (int)rng_mod(rng, (unsigned int)pool);
         } else {
             pick = 0;
             for (i = 1; i < j->top; i++) {
@@ -810,7 +837,7 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
     }
 }
 
-int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET])
+int ai_choose(const Match *m, AiLevel lvl, Rng *rng, Move out[BUDGET])
 {
     AiJob job;
     int i;

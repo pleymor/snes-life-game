@@ -5,6 +5,57 @@
 static Match m;
 static Move mv[BUDGET];
 
+/* ---- l'état du xorshift, vu comme un entier de 32 bits (hôte) ---- */
+
+static void seed32(Rng *r, unsigned long v)
+{
+    rng_seed(r, (unsigned short)((v >> 16) & 0xFFFFUL), (unsigned short)(v & 0xFFFFUL));
+}
+
+static unsigned long u32(const Rng *r)
+{
+    return ((unsigned long)r->hi << 16) | (unsigned long)r->lo;
+}
+
+/* Référence : le xorshift32 d'origine, sur un type de 32 bits au moins. */
+static unsigned long ref_xs32(unsigned long x)
+{
+    x &= 0xFFFFFFFFUL;
+    x ^= (x << 13) & 0xFFFFFFFFUL;
+    x ^= x >> 17;
+    x ^= (x <<  5) & 0xFFFFFFFFUL;
+    return x;
+}
+
+/* Le générateur sur deux moitiés de 16 bits doit suivre exactement la
+   suite de 32 bits (spec § 6.2 : xorshift 32 bits, identique entre la
+   console et le simulateur), et le tirage modulo 1 à 3 aussi. */
+static void test_le_xorshift_sur_deux_moities_suit_la_suite_32_bits(void)
+{
+    static const unsigned long seeds[6] = {
+        1UL, 7UL, 42UL, 12345UL, 0x2545F491UL, 0xFFFFFFFFUL
+    };
+    int s, k, p;
+
+    for (s = 0; s < 6; s++) {
+        Rng r;
+        unsigned long ref = seeds[s];
+        int bad = 0, badmod = 0;
+        seed32(&r, ref);
+        T_EQ(u32(&r), ref);
+        for (k = 0; k < 5000; k++) {
+            rng_next(&r);
+            ref = ref_xs32(ref);
+            if (u32(&r) != ref) bad++;
+            for (p = 1; p <= 3; p++) {
+                if (rng_mod(&r, (unsigned int)p) != (unsigned int)(ref % (unsigned long)p)) badmod++;
+            }
+        }
+        T_EQ(bad, 0);
+        T_EQ(badmod, 0);
+    }
+}
+
 /* ---- référence : la même chose, en simulant tout le plateau ---- */
 
 static int net_after(const Board *base, Cell who, int depth)
@@ -88,8 +139,9 @@ static void test_la_fenetre_locale_egale_la_simulation_complete(void)
 
 static void test_les_coups_rendus_sont_legaux_et_distincts(void)
 {
-    unsigned long rng = 1UL;
+    Rng rng;
     int n, i, j;
+    seed32(&rng, 1UL);
     match_start(&m);
     m.turn = CELL_P2;
     m.range = m.board;
@@ -112,8 +164,9 @@ static void test_les_coups_rendus_sont_legaux_et_distincts(void)
    et le départage par ordre de balayage désigne (10, 9). */
 static void test_lia_referme_le_bloc_plutot_que_le_clignotant(void)
 {
-    unsigned long rng = 1UL;
+    Rng rng;
     int n;
+    seed32(&rng, 1UL);
     match_start(&m);
     board_clear(&m.board);
     board_set(&m.board, 10, 10, CELL_P1);
@@ -130,7 +183,8 @@ static void test_lia_referme_le_bloc_plutot_que_le_clignotant(void)
 
 static void test_sans_aucune_cellule_lia_passe(void)
 {
-    unsigned long rng = 1UL;
+    Rng rng;
+    seed32(&rng, 1UL);
     match_start(&m);
     board_clear(&m.board);
     board_set(&m.board, 10, 10, CELL_P2);
@@ -143,9 +197,11 @@ static void test_sans_aucune_cellule_lia_passe(void)
 
 static void test_le_niveau_facile_est_reproductible(void)
 {
-    unsigned long r1 = 42UL, r2 = 42UL;
+    Rng r1, r2;
     Move a[BUDGET], b[BUDGET];
     int na, nb, i;
+    seed32(&r1, 42UL);
+    seed32(&r2, 42UL);
     match_start(&m);
     na = ai_choose(&m, AI_EASY, &r1, a);
     nb = ai_choose(&m, AI_EASY, &r2, b);
@@ -159,8 +215,9 @@ static void test_le_niveau_facile_est_reproductible(void)
 /* Le simulateur de la tâche 7 en dépend : une partie doit finir. */
 static void test_une_partie_ia_contre_ia_se_termine(void)
 {
-    unsigned long rng = 7UL;
+    Rng rng;
     int guard = 0;
+    seed32(&rng, 7UL);
     match_start(&m);
     while (match_winner(&m) == WINNER_NONE && guard < 4 * ROUND_CAP) {
         int n = ai_choose(&m, AI_NORMAL, &rng, mv);
@@ -220,17 +277,17 @@ static const unsigned long pin_seeds[3] = { 0x1234ABCDUL, 0xBEEF1234UL, 0x0F0F5A
    troncature à K = 32 du niveau normal. */
 static void check_step_equals_once(AiLevel lvl, bool_t dense, unsigned long seed, Cell turn)
 {
-    unsigned long rng_once, rng_stepped;
+    Rng rng_once, rng_stepped;
     Move once[BUDGET];
     AiJob job;
     int n_once, i;
 
     if (dense) fill_match(seed, turn, DENSE); else pair_match();
-    rng_once = 99UL;
+    seed32(&rng_once, 99UL);
     n_once = ai_choose(&m, lvl, &rng_once, once);
 
     if (dense) fill_match(seed, turn, DENSE); else pair_match();
-    rng_stepped = 99UL;
+    seed32(&rng_stepped, 99UL);
     ai_begin(&job, &m, lvl);
     while (!ai_step(&job, &m, &rng_stepped, 1)) {
         /* une étape à la fois */
@@ -244,7 +301,7 @@ static void check_step_equals_once(AiLevel lvl, bool_t dense, unsigned long seed
         T_EQ(job.out[i].x, once[i].x);
         T_EQ(job.out[i].y, once[i].y);
     }
-    T_EQ(rng_stepped, rng_once);
+    T_EQ(u32(&rng_stepped), u32(&rng_once));
 }
 
 static void test_ai_step_par_1_egale_ai_choose_dune_traite(void)
@@ -318,7 +375,8 @@ static const u8 pinned_sparse[6][8] = {
    collecte : job.n est alors le nombre de candidats du premier coup. */
 static void first_collect(AiJob *job)
 {
-    unsigned long rng = 1UL;
+    Rng rng;
+    seed32(&rng, 1UL);
     ai_begin(job, &m, AI_NORMAL);
     while (job->phase <= AI_PH_COLLECT) {
         ai_step(job, &m, &rng, 1);
@@ -337,17 +395,17 @@ static void check_pinned(const u8 row[7], int n, const Move got[BUDGET])
 
 static void test_les_choix_de_lia_sont_epingles(void)
 {
-    unsigned long rng;
+    Rng rng;
     int s, t, l, k, i, n, row = 0;
 
     for (s = 0; s < 3; s++) {
         for (t = (int)CELL_P1; t <= (int)CELL_P2; t++) {
             for (l = 0; l <= (int)AI_NORMAL; l++) {
                 fill_match(pin_seeds[s], (Cell)t, DENSE);
-                rng = 12345UL;
+                seed32(&rng, 12345UL);
                 n = ai_choose(&m, (AiLevel)l, &rng, mv);
                 check_pinned(pinned_dense[row], n, mv);
-                T_EQ(rng, (l == (int)AI_EASY) ? 2816511904UL : 12345UL);
+                T_EQ(u32(&rng), (l == (int)AI_EASY) ? 2816511904UL : 12345UL);
                 row++;
             }
         }
@@ -360,7 +418,7 @@ static void test_les_choix_de_lia_sont_epingles(void)
             fill_match(pin_seeds[s], (Cell)t, SPARSE);
             first_collect(&job);
             T_EQ(job.n, pinned_sparse[row][7]);
-            rng = 12345UL;
+            seed32(&rng, 12345UL);
             n = ai_choose(&m, AI_NORMAL, &rng, mv);
             check_pinned(pinned_sparse[row], n, mv);
             row++;
@@ -374,7 +432,7 @@ static void test_les_choix_de_lia_sont_epingles(void)
     }
 
     match_start(&m);
-    rng = 7UL;
+    seed32(&rng, 7UL);
     for (k = 0; k < 12; k++) {
         n = ai_choose(&m, (k & 1) ? AI_EASY : AI_NORMAL, &rng, mv);
         check_pinned(pinned_game[k], n, mv);
@@ -383,7 +441,7 @@ static void test_les_choix_de_lia_sont_epingles(void)
         }
         match_end_turn(&m);
     }
-    T_EQ(rng, 3843456730UL);
+    T_EQ(u32(&rng), 3843456730UL);
 }
 
 /* Tout le travail est étalé : ai_begin() ne balaie rien, et un pas dont le
@@ -394,8 +452,9 @@ static void test_les_choix_de_lia_sont_epingles(void)
 static void test_le_tour_est_etale_etape_par_etape(void)
 {
     AiJob job;
-    unsigned long rng = 1UL;
+    Rng rng;
     int y, guard;
+    seed32(&rng, 1UL);
 
     fill_match(pin_seeds[0], CELL_P1, SPARSE);
     ai_begin(&job, &m, AI_NORMAL);
@@ -452,14 +511,14 @@ static void test_le_tour_est_etale_etape_par_etape(void)
    chaque tour. */
 static void test_lia_ne_depend_pas_de_la_memoire_initiale(void)
 {
-    unsigned long rng;
+    Rng rng;
     int s, t, k, i, n, row = 0;
 
     for (s = 0; s < 3; s++) {
         for (t = (int)CELL_P1; t <= (int)CELL_P2; t++) {
             fill_match(pin_seeds[s], (Cell)t, SPARSE);
             ai_test_poison(0x55);
-            rng = 12345UL;
+            seed32(&rng, 12345UL);
             n = ai_choose(&m, AI_NORMAL, &rng, mv);
             check_pinned(pinned_sparse[row], n, mv);
             row++;
@@ -467,7 +526,7 @@ static void test_lia_ne_depend_pas_de_la_memoire_initiale(void)
     }
 
     match_start(&m);
-    rng = 7UL;
+    seed32(&rng, 7UL);
     for (k = 0; k < 12; k++) {
         ai_test_poison((k & 1) ? 0xFF : 0x55);
         n = ai_choose(&m, (k & 1) ? AI_EASY : AI_NORMAL, &rng, mv);
@@ -477,7 +536,7 @@ static void test_lia_ne_depend_pas_de_la_memoire_initiale(void)
         }
         match_end_turn(&m);
     }
-    T_EQ(rng, 3843456730UL);
+    T_EQ(u32(&rng), 3843456730UL);
 
     /* ai_eval_local() aussi, contre la simulation complète. */
     fill_match(pin_seeds[1], CELL_P1, SPARSE);
@@ -487,6 +546,7 @@ static void test_lia_ne_depend_pas_de_la_memoire_initiale(void)
 
 void suite_ai(void)
 {
+    T_RUN(test_le_xorshift_sur_deux_moities_suit_la_suite_32_bits);
     T_RUN(test_la_fenetre_locale_egale_la_simulation_complete);
     T_RUN(test_les_coups_rendus_sont_legaux_et_distincts);
     T_RUN(test_lia_referme_le_bloc_plutot_que_le_clignotant);

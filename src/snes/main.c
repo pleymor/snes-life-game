@@ -38,7 +38,7 @@ static Cursor cur;
 /* -1 pour un second joueur humain ; sinon AI_EASY ou AI_NORMAL. Tâche 12 la
    renseigne depuis un menu ; ici elle est fixée en dur (task 11). */
 static int cpu_level;
-static unsigned long rng;
+static Rng rng;
 
 /* Le tour du CPU est étalé sur plusieurs frames (spec § 6.3) : un pas
    d'ai_step() par itération de la boucle, entre deux WaitForVBlank(), pour
@@ -138,9 +138,9 @@ int main(void)
        § 10). m, cur et job le sont par match_start(), input_init() et
        ai_begin(). */
     cpu_level = AI_NORMAL;
-    /* `long` fait 16 bits pour 816-tcc (docs/snes-notes.md § 10) : seuls
-       les 16 bits bas de cette graine comptent sur la console. */
-    rng = 0x2545F491UL;
+    /* Graine 0x2545F491, en deux moitiés : `long` ne fait que 16 bits sur
+       la console (docs/snes-notes.md § 10). */
+    rng_seed(&rng, 0x2545U, 0xF491U);
     cpu_thinking = FALSE;
 #ifdef AI_MEASURE_FRAMES
     meas_start = 0;
