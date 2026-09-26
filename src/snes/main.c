@@ -23,6 +23,7 @@
 #include "match.h"
 #include "render.h"
 #include "input.h"
+#include "ai.h"
 
 typedef enum { GS_TURN, GS_RESOLVE, GS_OVER } GameState;
 
@@ -33,6 +34,27 @@ typedef enum { GS_TURN, GS_RESOLVE, GS_OVER } GameState;
    reason — lives in static storage, never on the stack. */
 static Match  m;
 static Cursor cur;
+
+/* -1 pour un second joueur humain ; sinon AI_EASY ou AI_NORMAL. Tâche 12 la
+   renseigne depuis un menu ; ici elle est fixée en dur (task 11). */
+static int cpu_level = AI_NORMAL;
+static unsigned long rng = 0x2545F491UL;
+
+/* Task 11 étape 3 : un ai_choose() bloquant mesuré en jeu réel coûte
+   environ 1900 frames (docs/snes-notes.md § 9), très au-delà du seuil de 30
+   frames fixé par la tâche — étalé ci-dessous sur plusieurs frames au lieu
+   d'un unique appel bloquant. `job` et `cpu_thinking` survivent d'une
+   frame à l'autre (portée fichier, comme `m`/`cur` ci-dessus), le temps que
+   le CPU termine son tour. */
+static AiJob  job;
+static bool_t cpu_thinking = FALSE;
+
+/* Candidats évalués par frame pendant que le CPU réfléchit (task 11 brief
+   étape 4) : assez petit pour ne jamais faire manquer un VBlank (chaque
+   candidat coûte une évaluation ai_eval_local(), voir docs/snes-notes.md
+   § 9), assez grand pour que le tour du CPU ne s'étale pas sur un nombre
+   de frames déraisonnable. */
+#define AI_STEP_BUDGET 4
 
 /* The small piece of visible state that decides whether the board/HUD need
    rebuilding this frame (task 10 ruling): m.turn, m.round, m.placed,
@@ -98,7 +120,31 @@ int main(void)
         snapshot_take(&before, state);
 
         if (state == GS_TURN) {
-            if (input_update(&cur, &m)) {
+            if (cpu_level >= 0 && m.turn == CELL_P2) {
+                if (!cpu_thinking) {
+                    ai_begin(&job, &m, (AiLevel)cpu_level);
+                    cpu_thinking = TRUE;
+                }
+                /* Un pas par frame, budget borné : le HUD (bandeau, pastille
+                   clignotante) continue de s'animer normalement pendant que
+                   le CPU réfléchit, la boucle ne bloque jamais plus d'une
+                   frame (task 11 étape 4, docs/snes-notes.md § 9). */
+                if (ai_step(&job, &m, &rng, AI_STEP_BUDGET)) {
+                    int i;
+                    for (i = 0; i < job.made; i++) {
+                        match_place(&m, (int)job.out[i].x, (int)job.out[i].y);
+                    }
+                    cpu_thinking = FALSE;
+                    ticked = TRUE;
+                    match_end_turn(&m);
+                    if (match_winner(&m) != WINNER_NONE) {
+                        state = GS_OVER;
+                    } else {
+                        state = GS_RESOLVE;
+                        hold = RESOLVE_HOLD;
+                    }
+                }
+            } else if (input_update(&cur, &m)) {
                 /* Un tick n'a lieu qu'à la fin du tour du second joueur. */
                 ticked = (bool_t)(m.turn == CELL_P2);
                 match_end_turn(&m);
@@ -126,7 +172,10 @@ int main(void)
             render_hud_dirty();
         }
         render_hud_now(&m, (bool_t)((frame & 16) != 0));
-        render_cursor(cur.x, cur.y, (bool_t)(state == GS_TURN));
+        /* Curseur masqué pendant que le CPU réfléchit (task 11) : sa
+           position resterait celle du dernier tour humain, sans rapport
+           avec le tour du CPU en cours. */
+        render_cursor(cur.x, cur.y, (bool_t)(state == GS_TURN && !cpu_thinking));
 
         frame++;
         WaitForVBlank();

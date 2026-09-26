@@ -853,3 +853,67 @@ Re-measured the same way (bisecting headless captures around the same
   full-board passes above are the next candidate if a further reduction
   is ever needed. Screenshots captured for this measurement are not
   archived in this repo.
+
+## 9. Task 11 — a blocking `ai_choose()` call costs ~1900 raw frames (~32 s), not sub-30; made resumable
+
+Task 11 wires the CPU opponent (`ai_choose()`, `src/core/ai.c`) into the game
+loop: `cpu_take_turn()` (`src/snes/main.c`) shows a "thinking" indicator (red
+HUD icon off, cursor hidden — the two-phase render discipline from tasks 9-10
+applies here too: prepare, `WaitForVBlank()`, `render_vblank()`, *then* the
+blocking call, or nothing would ever reach VRAM before the freeze) and calls
+`ai_choose()`. Per the task's own brief, step 3 measures this blocking call's
+real cost before deciding whether to pay the complexity of making it
+resumable (step 4's threshold: 30 raw frames, about half a second).
+
+**Method**: a temporary build (`-DAI_MEASURE_FRAMES`, never part of any
+committed target) made `cpu_take_turn()` read the free-running
+`snes_vblank_count` (declared in the shipped `snes/console.h`, incremented by
+PVSnesLib's own NMI handler every real VBlank, independently of whatever the
+main loop is doing) immediately before and after the blocking `ai_choose()`
+call, and displayed the delta at the round-number's usual HUD position (task
+11 brief step 3). Verified on `build/life-script.sfc`
+(the scripted-input ROM, docs §2) with `cpu_level = AI_NORMAL`, by bisecting
+headless captures (`cap.sh`, §2's background-launch + external-poll pattern)
+around the moment blue's (P1) scripted turn hands off to the CPU (red):
+
+- The screen is byte-identical (frozen: red HUD icon off, cursor hidden,
+  board/HUD unchanged) from raw frame **917** — the frame right after
+  `cpu_take_turn()`'s own preamble commits via its own
+  `WaitForVBlank()`/`render_vblank()`, immediately before the blocking
+  `ai_choose()` call — through raw frame **2822**, all captured and compared.
+- The first visible change (board ticked, HUD unfrozen, red icon back on) is
+  at raw frame **2824** — `ai_choose()` has returned by then (plus the small,
+  already-measured cost of the next dirty rebuild, §8 above, and
+  `match_end_turn()`'s life tick(s)).
+- **End-to-end bisected delta: ~1907 raw frames (2824 − 917), roughly 32 s at
+  60 Hz.** Independently corroborated by the in-ROM counter itself: every
+  capture in the frozen range, once unfrozen, showed the round display
+  saturated at its own clamp of 999 (`view_digits3()` clamps any value past
+  999 for display) — i.e. the exact internal `snes_vblank_count` delta is
+  itself confirmed **>= 999** raw VBlanks, consistent with (necessarily a
+  little under) the ~1907-frame outer bisection.
+
+**~1900 raw frames is roughly 63x the brief's 30-frame threshold** — this is
+not a borderline case. The cost is the expected one for `AI_NORMAL`
+(`AI_MAX_DEPTH = 2`, top-32 candidates re-scored by `ai_eval_local()`, up to
+`BUDGET = 3` placements, each rescoring against the *updated* working board):
+a 9x9 local window loaded and ticked twice, twice (with/without the
+candidate), for up to 32 candidates, up to 3 times per turn, all
+816-tcc-compiled, unoptimized C on a 3.58 MHz 65816 — the same order of
+magnitude as the board-wide passes in §8 above, just repeated far more times
+per turn than once.
+
+**Decision (brief step 4): > 30 frames — made `ai_choose()` resumable.**
+`src/core/ai.h`/`ai.c` gain the brief's `AiJob`/`ai_begin()`/`ai_step()` split
+(`ai_step()` evaluates a caller-given budget of candidates per call and
+returns `TRUE` once the whole turn is decided; `ai_choose()` becomes a thin
+loop calling `ai_step()` with an effectively infinite per-call budget, so
+every existing task 6 test keeps working unchanged). `src/snes/main.c`'s
+`cpu_take_turn()` is replaced by a per-frame `ai_step(&job, &m, &rng, 4)`
+call (budget 4 candidates/frame) folded into the main loop's own
+prepare/`WaitForVBlank()`/`render_vblank()` cycle, so the HUD (the blinking
+"thinking" icon) keeps animating across the many frames the CPU's move now
+visibly takes, instead of freezing the display for ~32 s. The temporary
+`AI_MEASURE_FRAMES` instrumentation itself was removed after this
+measurement (never part of the committed build). Screenshots captured for
+this measurement are not archived in this repo.

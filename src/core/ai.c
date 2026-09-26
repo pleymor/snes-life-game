@@ -202,44 +202,68 @@ static void select_top3_by_score(int top)
     }
 }
 
-int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET])
+/* Rassemble et trie les candidats du coup courant (j->made) dans le plateau
+   de travail. Appelée par ai_begin() pour le premier coup, puis par
+   ai_step() lui-même après chaque pose tant qu'il reste des coups à jouer
+   dans le budget du tour (`BUDGET`). */
+static void collect_round(AiJob *j, const Match *m)
 {
-    int depth = (lvl == AI_EASY) ? 1 : AI_MAX_DEPTH;
-    int k     = (lvl == AI_EASY) ? AI_TOPK_EASY : AI_TOPK_MAX;
-    Cell me   = m->turn;
-    Cell foe  = (me == CELL_P1) ? CELL_P2 : CELL_P1;
-    int made;
+    /* Cast expliqué à l'identique de l'ancien ai_choose() : nécessaire à
+       816-tcc seulement (voir plus bas), sans changement de comportement. */
+    j->n = collect(&work, (const u8 (*)[BOARD_W])m->range_mask, j->foe);
+    if (j->n > 0) {
+        select_top(j->n, j->k);
+    }
+    j->top = (j->n < j->k) ? j->n : j->k;
+    j->i = 0;
+}
+
+void ai_begin(AiJob *j, const Match *m, AiLevel lvl)
+{
+    j->lvl   = lvl;
+    j->depth = (lvl == AI_EASY) ? 1 : AI_MAX_DEPTH;
+    j->k     = (lvl == AI_EASY) ? AI_TOPK_EASY : AI_TOPK_MAX;
+    j->me    = m->turn;
+    j->foe   = (j->me == CELL_P1) ? CELL_P2 : CELL_P1;
+    j->made  = 0;
 
     /* `work` n'est jamais wrappé : rien ici ne lit le halo. */
     work = m->board;
 
-    for (made = 0; made < BUDGET; made++) {
-        int n, i, top, pick;
+    collect_round(j, m);
+}
 
-        /* Le cast explicite n'est là que pour 816-tcc : sans lui, il
-           accepte le passage de `m->range_mask` (un tableau membre lu à
-           travers un `const Match *`) sans se plaindre côté hôte
-           (-std=c89 -pedantic -Werror, GCC/Clang), mais lève un faux
-           "assignment from incompatible pointer type" à la compilation de
-           la ROM. Même décalage tableau -> pointeur des deux côtés,
-           aucun changement de comportement. */
-        n = collect(&work, (const u8 (*)[BOARD_W])m->range_mask, foe);
-        if (n == 0) break;
+bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
+{
+    while (budget > 0) {
+        int pick, i;
 
-        select_top(n, k);
-        top = (n < k) ? n : k;
-        for (i = 0; i < top; i++) {
-            scores[i] = ai_eval_local(&work, me,
-                                      (int)cands[i].x, (int)cands[i].y, depth);
+        if (j->i < j->top) {
+            /* Le seul coût mesuré comme significatif (docs/snes-notes.md
+               § 9) : c'est lui, et lui seul, que `budget` limite. */
+            scores[j->i] = ai_eval_local(&work, j->me,
+                                        (int)cands[j->i].x, (int)cands[j->i].y,
+                                        j->depth);
+            j->i++;
+            budget--;
+            continue;
         }
 
-        if (lvl == AI_EASY) {
-            int pool = (top < 3) ? top : 3;
-            select_top3_by_score(top);
+        /* Tous les candidats du coup courant sont notés (ou il n'y en
+           avait aucun) : fixer la pose et enchaîner ne consomme aucun
+           budget, comme la collecte elle-même (ai_begin()/collect_round(),
+           ci-dessus). */
+        if (j->top == 0 || j->made >= BUDGET) {
+            return TRUE;
+        }
+
+        if (j->lvl == AI_EASY) {
+            int pool = (j->top < 3) ? j->top : 3;
+            select_top3_by_score(j->top);
             pick = (int)(xs32(rng) % (unsigned long)pool);
         } else {
             pick = 0;
-            for (i = 1; i < top; i++) {
+            for (i = 1; i < j->top; i++) {
                 if (scores[i] > scores[pick] ||
                     (scores[i] == scores[pick] &&
                      scan_index(&cands[i]) < scan_index(&cands[pick]))) {
@@ -248,13 +272,40 @@ int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET])
             }
         }
 
-        out[made].x = cands[pick].x;
-        out[made].y = cands[pick].y;
+        j->out[j->made].x = cands[pick].x;
+        j->out[j->made].y = cands[pick].y;
         /* Fixée sur le plateau de travail : la pose suivante est évaluée
            en tenant compte de celle-ci, ce qui permet de trouver des
            combinaisons de deux ou trois cellules. */
-        board_set(&work, (int)cands[pick].x, (int)cands[pick].y, me);
+        board_set(&work, (int)cands[pick].x, (int)cands[pick].y, j->me);
+        j->made++;
+
+        if (j->made >= BUDGET) {
+            return TRUE;
+        }
+        collect_round(j, m);
     }
 
-    return made;
+    return FALSE;
+}
+
+int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET])
+{
+    AiJob job;
+    int i;
+
+    ai_begin(&job, m, lvl);
+    /* Budget "infini" : le plus grand nombre de candidats qu'un seul
+       collect() puisse produire (AI_MAX_CANDS), très au-dessus du total
+       réellement possible sur un tour entier (BUDGET * AI_TOPK_MAX = 96) ;
+       un seul appel à ai_step() termine donc tout le tour. Garde ai_choose()
+       identique en comportement à avant la tâche 11 : tous les tests de la
+       tâche 6 restent valides sans changement (task 11 brief). */
+    while (!ai_step(&job, m, rng, AI_MAX_CANDS)) {
+        /* rien : ai_step() a déjà tout consommé en un appel dans ce cas ;
+           la boucle n'existe que pour rester correcte si ça changeait. */
+    }
+
+    for (i = 0; i < job.made; i++) out[i] = job.out[i];
+    return job.made;
 }

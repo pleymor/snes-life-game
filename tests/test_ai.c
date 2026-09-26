@@ -162,6 +162,50 @@ static void test_une_partie_ia_contre_ia_se_termine(void)
     T_TRUE(match_winner(&m) != WINNER_NONE);
 }
 
+/* Task 11 : ai_choose() mesurée coûte trop cher pour un seul appel bloquant
+   (~1900 frames brutes en jeu réel, docs/snes-notes.md § 9) ; ai_choose()
+   devient donc une boucle sur ai_step() à budget infini. Cette équivalence
+   est la garantie de correction de la reprise pas à pas : ai_step() appelé
+   avec un budget de 1 candidat à la fois doit produire exactement la même
+   séquence de coups que ai_choose() d'une seule traite, pour les deux
+   niveaux (AI_EASY consomme rng, AI_NORMAL non). */
+static void test_ai_step_par_1_egale_ai_choose_dune_traite(void)
+{
+    int lvl_i;
+
+    for (lvl_i = 0; lvl_i <= (int)AI_NORMAL; lvl_i++) {
+        AiLevel lvl = (AiLevel)lvl_i;
+        unsigned long rng_once, rng_stepped;
+        Move once[BUDGET];
+        AiJob job;
+        int n_once, i;
+
+        match_start(&m);
+        board_clear(&m.board);
+        board_set(&m.board, 10, 10, CELL_P1);
+        board_set(&m.board, 11, 10, CELL_P1);
+        board_wrap(&m.board);
+        m.turn = CELL_P1;
+        m.range = m.board;
+        rules_range_mask(&m.range, m.turn, m.range_mask);
+
+        rng_once = 99UL;
+        n_once = ai_choose(&m, lvl, &rng_once, once);
+
+        rng_stepped = 99UL;
+        ai_begin(&job, &m, lvl);
+        while (!ai_step(&job, &m, &rng_stepped, 1)) {
+            /* un candidat à la fois */
+        }
+
+        T_EQ(job.made, n_once);
+        for (i = 0; i < n_once; i++) {
+            T_EQ(job.out[i].x, once[i].x);
+            T_EQ(job.out[i].y, once[i].y);
+        }
+    }
+}
+
 void suite_ai(void)
 {
     T_RUN(test_la_fenetre_locale_egale_la_simulation_complete);
@@ -170,4 +214,5 @@ void suite_ai(void)
     T_RUN(test_sans_aucune_cellule_lia_passe);
     T_RUN(test_le_niveau_facile_est_reproductible);
     T_RUN(test_une_partie_ia_contre_ia_se_termine);
+    T_RUN(test_ai_step_par_1_egale_ai_choose_dune_traite);
 }
