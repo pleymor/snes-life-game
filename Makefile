@@ -103,24 +103,46 @@ SNES_C_INTERMEDIATES := $(SNES_CFILES:.c=.obj) $(SNES_CFILES:.c=.asm) $(SNES_CFI
 clean-snes-intermediates:
 	rm -f $(SNES_C_INTERMEDIATES)
 
+# C statics live in bank 7E from 7E:2000 up (the .bss sections of the C
+# objects); PVSnesLib's own RAM sections start at 7E:8000 and wlalink does
+# not report an overlap between the two. Every ROM recipe therefore reads the
+# end of the last C .bss section from the generated .symfull and fails if it
+# goes past RAM_LIMIT (docs/snes-notes.md section 10). Addresses are 8
+# lowercase hex digits, so a plain string comparison orders them.
+RAM_LIMIT ?= 007e8000
+define check_ram
+	@awk -v lim=$(RAM_LIMIT) -v f=$(1) ' \
+	    $$2 == "SECTIONEND_.bss" { a = tolower($$1); if (a > top) top = a } \
+	    END { \
+	        if (top == "") { print "RAM check: no .bss section found in " f; exit 1 } \
+	        if (top > lim) { \
+	            print "RAM check FAILED: C statics end at " top ", past the limit " lim \
+	                  " (PVSnesLib RAM starts at 7E:8000, see docs/snes-notes.md section 10)"; \
+	            exit 1 } \
+	        print "RAM check: C statics end at " top " (limit " lim ")" }' $(1)
+endef
+
 .PHONY: rom rom-script rom-measure
 rom: clean-snes-intermediates buildWithSummary
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
 	mv $(ROMNAME).sym build/
 	mv $(ROMNAME).symfull build/
+	$(call check_ram,build/$(ROMNAME).symfull)
 
 rom-script: clean-snes-intermediates buildWithSummary
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
 	mv $(ROMNAME).sym build/
 	mv $(ROMNAME).symfull build/
+	$(call check_ram,build/$(ROMNAME).symfull)
 
 rom-measure: clean-snes-intermediates buildWithSummary
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
 	mv $(ROMNAME).sym build/
 	mv $(ROMNAME).symfull build/
+	$(call check_ram,build/$(ROMNAME).symfull)
 
 buildActual: $(OFILES) $(ROMNAME).sfc
 
