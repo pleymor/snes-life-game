@@ -81,6 +81,7 @@ static void test_les_coups_rendus_sont_legaux_et_distincts(void)
     match_start(&m);
     m.turn = CELL_P2;
     m.range = m.board;
+    rules_range_mask(&m.range, m.turn, m.range_mask);
     n = ai_choose(&m, AI_NORMAL, &rng, mv);
     T_TRUE(n > 0);
     T_TRUE(n <= BUDGET);
@@ -108,6 +109,7 @@ static void test_lia_referme_le_bloc_plutot_que_le_clignotant(void)
     board_wrap(&m.board);
     m.turn = CELL_P1;
     m.range = m.board;
+    rules_range_mask(&m.range, m.turn, m.range_mask);
     n = ai_choose(&m, AI_NORMAL, &rng, mv);
     T_TRUE(n > 0);
     T_EQ(mv[0].x, 10);
@@ -123,6 +125,7 @@ static void test_sans_aucune_cellule_lia_passe(void)
     board_wrap(&m.board);
     m.turn = CELL_P1;
     m.range = m.board;
+    rules_range_mask(&m.range, m.turn, m.range_mask);
     T_EQ(ai_choose(&m, AI_NORMAL, &rng, mv), 0);
 }
 

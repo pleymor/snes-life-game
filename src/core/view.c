@@ -1,27 +1,26 @@
 #include "view.h"
-#include "rules.h"
 
-/* Portée à zone de fichier : trop grand pour la pile (768 octets), et
-   recalculé une seule fois par appel plutôt qu'une fois par case vide
-   (voir docs/snes-notes.md, "board rebuild cost"). */
-static u8 range_mask[BOARD_H][BOARD_W];
-
+/* Fix round 1 (perf review, docs/snes-notes.md § 8) : le masque de portée
+   n'est plus recalculé ici. m->range_mask est déjà tenu à jour pour tout
+   le tour par begin_turn() (match.c) ; le lire directement évite à la
+   fois un appel à rules_range_mask() par rafraîchissement et, avant ça,
+   un rules_in_range() par case vide. board_get(&m->board, x, y) est
+   également remplacé par un pointeur de ligne hoisté hors de la boucle
+   sur x, pour la même raison (une seule multiplication par ligne au lieu
+   d'une par case, via BSTRIDE — voir board.c). */
 void view_board(const Match *m, bool_t show_range, u8 out[BOARD_H][BOARD_W])
 {
     int x, y;
 
-    if (show_range) {
-        rules_range_mask(&m->range, m->turn, range_mask);
-    }
-
     for (y = 0; y < BOARD_H; y++) {
+        const u8 *row = &m->board.c[y + 1][1];
         for (x = 0; x < BOARD_W; x++) {
-            Cell v = board_get(&m->board, x, y);
-            if (v == CELL_P1) {
+            u8 v = row[x];
+            if (v == (u8)CELL_P1) {
                 out[y][x] = TILE_P1;
-            } else if (v == CELL_P2) {
+            } else if (v == (u8)CELL_P2) {
                 out[y][x] = TILE_P2;
-            } else if (show_range && range_mask[y][x]) {
+            } else if (show_range && m->range_mask[y][x]) {
                 out[y][x] = TILE_RANGE;
             } else {
                 out[y][x] = TILE_EMPTY;
@@ -52,15 +51,20 @@ void view_hud(const Match *m, u8 out[HUD_W])
 {
     int i;
     int ticks = match_ticks_this_round(m);
+    int p1, p2;
 
     for (i = 0; i < HUD_W; i++) {
         out[i] = TILE_EMPTY;
     }
 
+    /* Un seul passage des 768 cases pour les deux couleurs, plutôt que
+       deux appels séparés à board_count() (fix round 1, § c). */
+    board_count_pair(&m->board, &p1, &p2);
+
     out[0]  = TILE_P1;
     out[31] = TILE_P2;
-    view_digits3(board_count(&m->board, CELL_P1), &out[2]);
-    view_digits3(board_count(&m->board, CELL_P2), &out[27]);
+    view_digits3(p1, &out[2]);
+    view_digits3(p2, &out[27]);
     pips(m, CELL_P1, &out[6]);
     pips(m, CELL_P2, &out[23]);
 

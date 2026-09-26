@@ -13,7 +13,6 @@ static u8    wa[AI_WIN][AI_WIN];
 static u8    wb[AI_WIN][AI_WIN];
 static Board work;
 static int   scores[AI_TOPK_MAX];
-static u8    range_mask[BOARD_H][BOARD_W];
 
 typedef struct { u8 x, y; short pre; } Cand;
 static Cand cands[AI_MAX_CANDS];
@@ -134,12 +133,12 @@ static int enemy_pull(const Board *b, Cell foe, int x, int y)
 static int scan_index(const Cand *c) { return (int)c->y * BOARD_W + (int)c->x; }
 
 /* Remplit `cands` dans l'ordre de balayage : y croissant puis x croissant.
-   C'est cet ordre qui sert de départage. */
-static int collect(const Board *cur, const Board *range, Cell me, Cell foe)
+   C'est cet ordre qui sert de départage. `range_mask` est déjà celui du
+   joueur courant (fix round 1 : m->range_mask, tenu à jour par
+   begin_turn() dans match.c pour tout le tour), donc plus recalculé ici. */
+static int collect(const Board *cur, const u8 (*range_mask)[BOARD_W], Cell foe)
 {
     int x, y, n = 0;
-
-    rules_range_mask(range, me, range_mask);
 
     for (y = 0; y < BOARD_H; y++) {
         for (x = 0; x < BOARD_W; x++) {
@@ -217,7 +216,14 @@ int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET])
     for (made = 0; made < BUDGET; made++) {
         int n, i, top, pick;
 
-        n = collect(&work, &m->range, me, foe);
+        /* Le cast explicite n'est là que pour 816-tcc : sans lui, il
+           accepte le passage de `m->range_mask` (un tableau membre lu à
+           travers un `const Match *`) sans se plaindre côté hôte
+           (-std=c89 -pedantic -Werror, GCC/Clang), mais lève un faux
+           "assignment from incompatible pointer type" à la compilation de
+           la ROM. Même décalage tableau -> pointeur des deux côtés,
+           aucun changement de comportement. */
+        n = collect(&work, (const u8 (*)[BOARD_W])m->range_mask, foe);
         if (n == 0) break;
 
         select_top(n, k);

@@ -16,12 +16,18 @@ void board_set(Board *b, int x, int y, Cell v)
     b->c[y + 1][x + 1] = (u8)v;
 }
 
+/* Un pointeur de ligne hoisté hors de la boucle sur x : une seule
+   multiplication (l'adresse de la ligne, via BSTRIDE) par ligne, plus
+   aucune par case (fix round 1 — perf review, docs/snes-notes.md § 8 :
+   b->c[y][x] indexé directement multiplie par BSTRIDE=34 à chaque accès,
+   34 n'étant pas une puissance de deux). */
 int board_count(const Board *b, Cell who)
 {
     int x, y, n = 0;
     for (y = 1; y <= BOARD_H; y++) {
-        for (x = 1; x <= BOARD_W; x++) {
-            if (b->c[y][x] == (u8)who) {
+        const u8 *row = &b->c[y][1];
+        for (x = 0; x < BOARD_W; x++) {
+            if (row[x] == (u8)who) {
                 n++;
             }
         }
@@ -29,15 +35,13 @@ int board_count(const Board *b, Cell who)
     return n;
 }
 
-/* Les deux couleurs en un seul passage des BOARD_H*BOARD_W cases : évite
-   à un appelant qui veut les deux comptes (view_hud) de balayer le
-   plateau deux fois de suite pour ça (fix round 1, § c). */
 void board_count_pair(const Board *b, int *p1, int *p2)
 {
     int x, y, c1 = 0, c2 = 0;
     for (y = 1; y <= BOARD_H; y++) {
-        for (x = 1; x <= BOARD_W; x++) {
-            u8 v = b->c[y][x];
+        const u8 *row = &b->c[y][1];
+        for (x = 0; x < BOARD_W; x++) {
+            u8 v = row[x];
             if (v == (u8)CELL_P1) {
                 c1++;
             } else if (v == (u8)CELL_P2) {
