@@ -688,7 +688,7 @@ quick sweep/measurement rather than a guess when verifying a blink or
 any other periodic effect on screen, since a regression here silently
 un-does the 1:1 loop/VBlank guarantee without any compiler warning.
 
-## 8. Task 10 — a range-shown board rebuild costs ~350 raw frames (~5.8 s), not sub-frame
+## 8. Task 10 — a range-shown board rebuild costs ~350 raw frames (~5.8 s), not sub-frame (fixed, see update below)
 
 `render_board_now()`'s `view_board()` (`src/core/view.c`) calls
 `rules_in_range()` for every empty cell of the 768-cell board when
@@ -723,3 +723,56 @@ blow the loop's real-time budget by orders of magnitude on this CPU;
 run ~700 times per rebuild is the likely culprit and is a candidate for
 a future optimisation task (e.g. only rescanning cells near the figures
 that actually moved, instead of the whole board) — out of scope here.
+
+### Update — fixed by computing the range as a mask by dilation
+
+`rules_range_mask()` (`src/core/rules.h`/`.c`) replaces the per-empty-cell
+`rules_in_range()` scan with a dilation: clear an `[BOARD_H][BOARD_W]`
+mask, then for each of `player`'s own cells on the board, stamp the
+`(2*RANGE_RADIUS+1)²` square around it (wrapped via `BOARD_WRAP_X/Y`).
+Cost is now proportional to *occupied cells* (~9 for a fresh side) × 25,
+not *board cells* (768) × 25. Both `view_board` (`src/core/view.c`) and
+`ai.c`'s `collect()` compute the mask once per call (into a file-scope
+static buffer — the mask itself is 768 bytes, too big for the 65816's
+stack) instead of calling `rules_in_range()` per cell; `rules_in_range()`
+itself is untouched and still backs `match_place`'s single-cell check.
+An equivalence test (`tests/test_rules.c`) checks `rules_range_mask()`
+against `rules_in_range()` cell-by-cell on the empty board, `board_seed()`
+for both colours, single cells at all four corners/edges (seam wrap), and
+several pseudo-random boards (a small in-test xorshift32, not `rand()`),
+plus a check that the other colour's cells don't contribute. `make test`
+(1327 → 19761 checks, all passing — the equivalence tests each check
+every one of the 768 cells on several boards, which is where almost all
+the new check count comes from) and `PVSNESLIB_HOME=/nonexistent make
+test` both stay pristine; `make rom` and `make rom-script` build clean
+(816-tcc initially hit an internal compiler error on the
+`mask[BOARD_WRAP_Y(...)][BOARD_WRAP_X(...)]` indexing expression —
+worked around by hoisting the wrapped coordinates into named `int`
+locals before indexing).
+
+Re-measured with the same method as above (bisecting `WS/cap.sh`
+captures around the `SELECT` toggle, range-dot pixel count as the
+signal), on `build/life-script.sfc`:
+
+- **before**: the toggle-on (expensive) rebuild cost **~350 raw frames**
+  (~5.8 s).
+- **after**: toggle-off (cheap, unaffected by this fix — it never called
+  `rules_in_range`/`rules_range_mask` at all) still completes at raw
+  frame 754; toggle-on (now mask-based) completes at raw frame 804 — a
+  delta of 50 raw frames, of which 8 are the idle gap between the two
+  `SELECT` presses in the script, leaving **~42 raw frames (~0.7 s)** for
+  the mask-based rebuild itself. Cross-checked against the first
+  placement's own (also mask-based) rebuild: predicted to land around raw
+  854 (804 + 8-call gap + ~42), observed at raw 856 — matches within a
+  couple of frames. Screenshots: `task10-perf-off-before-753.png` /
+  `task10-perf-off-complete-754.png` (off transition), `task10-perf-on-
+  before-803.png` / `task10-perf-on-complete-804.png` (on transition),
+  `task10-perf-place1-before-850.png` / `task10-perf-place1-complete-
+  856.png` (cross-check), all under `WS/` only.
+- That is roughly an **8× reduction** (~350 → ~42 raw frames), turning a
+  ~5.8 s total-visual-freeze per placement/undo/turn-switch into ~0.7 s.
+  Still not sub-frame — a mask recompute still touches every one of the
+  768 cells once (to find `player`'s cells) even though it no longer
+  tests each one against every neighbour — but it is proportional to the
+  board's cell count once, not to cell count × neighbourhood size, and it
+  no longer dominates the frame budget by two orders of magnitude.
