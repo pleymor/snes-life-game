@@ -141,17 +141,27 @@ static int win_net(const u8 *w, int radius, Cell me)
     return net;
 }
 
-/* Simule `depth` ticks en partant de ws, en alternant wb et wa comme
-   destinations, et rend le bilan sur la zone mesurée. ws n'est jamais
-   écrit : la passe suivante repart de la même fenêtre sans la recharger. */
-static int win_run(int depth, Cell me)
+/* Simule `depth` ticks en partant de ws, avec wb puis wa (puis wb...)
+   comme destinations du tick 0, 1 (, 2...), et rend le bilan sur la zone
+   mesurée. ws n'est jamais écrit par un tick.
+
+   `perturbed` : seconde passe, celle où la cellule est posée au centre de
+   ws. Elle ne diffère de la première que dans le cône du centre : au tick
+   t, seules les cases à moins de t + 1 du centre peuvent avoir changé. Le
+   reste de la destination contient déjà, de la première passe, la bonne
+   valeur : ce tick ne recalcule que le rayon min(t + 1, 2 * depth - 1 -
+   t). La première passe doit donc avoir tourné juste avant, sur la même
+   fenêtre et la même profondeur. */
+static int win_run(int depth, Cell me, bool_t perturbed)
 {
     const u8 *src = &ws[0][0];
     int t;
 
     for (t = 0; t < depth; t++) {
         u8 *dst = (t & 1) ? &wa[0][0] : &wb[0][0];
-        win_tick(src, dst, 2 * depth - 1 - t);
+        int r = 2 * depth - 1 - t;
+        if (perturbed && t + 1 < r) r = t + 1;
+        win_tick(src, dst, r);
         src = dst;
     }
     return win_net(src, depth, me);
@@ -162,13 +172,13 @@ int ai_eval_local(const Board *b, Cell who, int x, int y, int depth)
     int without, with;
 
     win_load(b, x, y, depth);
-    without = win_run(depth, who);
+    without = win_run(depth, who, FALSE);
 
     /* Une seule lecture du plateau par évaluation : la seconde passe pose
        la cellule directement dans ws, que la prochaine évaluation
        rechargera de toute façon. */
     ws[AI_C][AI_C] = (u8)who;
-    with = win_run(depth, who);
+    with = win_run(depth, who, TRUE);
 
     return with - without;
 }
