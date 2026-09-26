@@ -78,4 +78,12 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget);
    l'optimisation. */
 int ai_eval_local(const Board *b, Cell who, int x, int y, int depth);
 
+#ifdef AI_TEST_HOOKS
+/* Tests hôtes seulement : remplit toute la mémoire statique modifiable
+   d'ai.c de `v`, comme la RAM de la console au démarrage (rien n'y est
+   remis à zéro, docs/snes-notes.md § 10). Aucun choix ne doit en
+   dépendre. */
+void ai_test_poison(u8 v);
+#endif
+
 #endif

@@ -83,7 +83,6 @@ static u8     wrap_row[BOARD_H + 2 * AI_PAD];
 static int    row_off[BOARD_H + 2 * AI_PAD];
 static u8     rule_surv[AI_SUM_SPAN];
 static u8     rule_birth[AI_SUM_SPAN];
-static bool_t tables_ready = FALSE;
 static const u8 ai_code[3] = { 0, AI_E1, AI_E2 };
 
 #define AI_RULE(self, s) ((self) ? (u8)((self) & rule_surv[s]) : rule_birth[s])
@@ -106,7 +105,6 @@ static void tables_init(void)
             rule_birth[s] = ai_code[LIFE_RULE((u8)CELL_EMPTY, n, n1)];
         }
     }
-    tables_ready = TRUE;
 }
 
 /* Somme codée des huit voisins de la case de stockage (x, y) quand p
@@ -310,6 +308,18 @@ static u8  touched[25];
 static int ev_nt;    /* cases dans `touched` */
 static int ev_net;   /* gain net accumulé */
 
+/* eval_delta() suppose t2, chg et hit à zéro en entrée, et les y remet en
+   sortie pour les seules cases qu'il a touchées : il faut donc les vider
+   une fois avant la première évaluation. La RAM de la console n'est pas
+   remise à zéro au démarrage (docs/snes-notes.md § 10). w1 et touched ne
+   sont lus qu'aux cases marquées par chg ou comptées par ev_nt. */
+static void eval_scratch_clear(void)
+{
+    memset(t2, 0, sizeof t2);
+    memset(chg, 0, sizeof chg);
+    memset(hit, 0, sizeof hit);
+}
+
 /* La case k du rayon 1 passe de g (sans la pose) à v (avec) au tick 1. */
 static void r1_changed(int k, u8 v, u8 g, u8 mine, int depth)
 {
@@ -398,7 +408,8 @@ int ai_eval_local(const Board *b, Cell who, int x, int y, int depth)
 {
     int k;
 
-    if (!tables_ready) tables_init();
+    tables_init();
+    eval_scratch_clear();
     for (k = 0; k < BOARD_H; k++) code_row(b, k, 0, (const u8 *)0);
     board_wrap(&wk);
 
@@ -642,7 +653,10 @@ void ai_begin(AiJob *j, const Match *m, AiLevel lvl)
     n_open   = 0;
     j->top   = 0;
     j->i     = 0;
-    if (!tables_ready) tables_init();
+    /* Tout ce que la suite lit sans l'avoir écrit elle-même est posé ici,
+       à chaque tour : rien ne dépend de l'état initial de la RAM. */
+    tables_init();
+    eval_scratch_clear();
 }
 
 /* Coût de la prochaine étape, en unités de budget (ai.h). */
@@ -812,3 +826,46 @@ int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET])
     for (i = 0; i < job.made; i++) out[i] = job.out[i];
     return job.made;
 }
+
+#ifdef AI_TEST_HOOKS
+void ai_test_poison(u8 v)
+{
+    memset(&wk, v, sizeof wk);
+    memset(&g1b, v, sizeof g1b);
+    memset(&s1b, v, sizeof s1b);
+    memset(&g2b, v, sizeof g2b);
+    memset(&s2b, v, sizeof s2b);
+    memset(scores, v, sizeof scores);
+    memset(all_c, v, sizeof all_c);
+    memset(cands, v, sizeof cands);
+    memset(wrap_col, v, sizeof wrap_col);
+    memset(wrap_row, v, sizeof wrap_row);
+    memset(row_off, v, sizeof row_off);
+    memset(rule_surv, v, sizeof rule_surv);
+    memset(rule_birth, v, sizeof rule_birth);
+    memset(open_x, v, sizeof open_x);
+    memset(open_y, v, sizeof open_y);
+    memset(&n_open, v, sizeof n_open);
+    memset(open_at, v, sizeof open_at);
+    memset(foe_h, v, sizeof foe_h);
+    memset(foe_row, v, sizeof foe_row);
+    memset(need_row1, v, sizeof need_row1);
+    memset(need_row2, v, sizeof need_row2);
+    memset(need_col1, v, sizeof need_col1);
+    memset(need_col2, v, sizeof need_col2);
+    memset(cand_row, v, sizeof cand_row);
+    memset(cand_col, v, sizeof cand_col);
+    memset(cols1, v, sizeof cols1);
+    memset(cols2, v, sizeof cols2);
+    memset(&ncols1, v, sizeof ncols1);
+    memset(&ncols2, v, sizeof ncols2);
+    memset(t2, v, sizeof t2);
+    memset(w1, v, sizeof w1);
+    memset(chg, v, sizeof chg);
+    memset(hit, v, sizeof hit);
+    memset(touched, v, sizeof touched);
+    memset(&ev_nt, v, sizeof ev_nt);
+    memset(&ev_net, v, sizeof ev_net);
+    memset(pre_pos, v, sizeof pre_pos);
+}
+#endif

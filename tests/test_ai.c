@@ -446,6 +446,45 @@ static void test_le_tour_est_etale_etape_par_etape(void)
     T_EQ(job.i, 4);
 }
 
+/* La RAM de la console n'est pas remise à zéro au démarrage : l'IA ne doit
+   rien supposer de ses tableaux statiques. Même épinglage que plus haut,
+   la mémoire d'ai.c remplie de 0x55 (le remplissage de l'émulateur) avant
+   chaque tour. */
+static void test_lia_ne_depend_pas_de_la_memoire_initiale(void)
+{
+    unsigned long rng;
+    int s, t, k, i, n, row = 0;
+
+    for (s = 0; s < 3; s++) {
+        for (t = (int)CELL_P1; t <= (int)CELL_P2; t++) {
+            fill_match(pin_seeds[s], (Cell)t, SPARSE);
+            ai_test_poison(0x55);
+            rng = 12345UL;
+            n = ai_choose(&m, AI_NORMAL, &rng, mv);
+            check_pinned(pinned_sparse[row], n, mv);
+            row++;
+        }
+    }
+
+    match_start(&m);
+    rng = 7UL;
+    for (k = 0; k < 12; k++) {
+        ai_test_poison((k & 1) ? 0xFF : 0x55);
+        n = ai_choose(&m, (k & 1) ? AI_EASY : AI_NORMAL, &rng, mv);
+        check_pinned(pinned_game[k], n, mv);
+        for (i = 0; i < n; i++) {
+            match_place(&m, (int)mv[i].x, (int)mv[i].y);
+        }
+        match_end_turn(&m);
+    }
+    T_EQ(rng, 3843456730UL);
+
+    /* ai_eval_local() aussi, contre la simulation complète. */
+    fill_match(pin_seeds[1], CELL_P1, SPARSE);
+    ai_test_poison(0x55);
+    T_EQ(ai_eval_local(&m.board, CELL_P1, 5, 5, 2), full_delta(&m.board, CELL_P1, 5, 5, 2));
+}
+
 void suite_ai(void)
 {
     T_RUN(test_la_fenetre_locale_egale_la_simulation_complete);
@@ -457,4 +496,5 @@ void suite_ai(void)
     T_RUN(test_ai_step_par_1_egale_ai_choose_dune_traite);
     T_RUN(test_les_choix_de_lia_sont_epingles);
     T_RUN(test_le_tour_est_etale_etape_par_etape);
+    T_RUN(test_lia_ne_depend_pas_de_la_memoire_initiale);
 }

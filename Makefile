@@ -137,7 +137,9 @@ CORE_SRC  := $(wildcard src/core/*.c)
 CORE_HDR  := $(wildcard src/core/*.h)
 TEST_SRC  := $(wildcard tests/*.c)
 TEST_HDR  := $(wildcard tests/*.h)
-HOSTFLAGS := -std=c89 -pedantic -Wall -Wextra -Werror -Isrc/core -Itests -g \
+# AI_TEST_HOOKS : points d'entrée réservés aux tests hôtes (ai.h), jamais
+# compilés dans une ROM.
+HOSTFLAGS := -std=c89 -pedantic -Wall -Wextra -Werror -Isrc/core -Itests -g -DAI_TEST_HOOKS \
              -fsanitize=address,undefined
 SIMFLAGS  := -std=c99 -Wall -Wextra -O2 -Isrc/core
 
