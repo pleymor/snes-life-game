@@ -13,6 +13,7 @@ static u8    wa[AI_WIN][AI_WIN];
 static u8    wb[AI_WIN][AI_WIN];
 static Board work;
 static int   scores[AI_TOPK_MAX];
+static u8    range_mask[BOARD_H][BOARD_W];
 
 typedef struct { u8 x, y; short pre; } Cand;
 static Cand cands[AI_MAX_CANDS];
@@ -137,11 +138,14 @@ static int scan_index(const Cand *c) { return (int)c->y * BOARD_W + (int)c->x; }
 static int collect(const Board *cur, const Board *range, Cell me, Cell foe)
 {
     int x, y, n = 0;
+
+    rules_range_mask(range, me, range_mask);
+
     for (y = 0; y < BOARD_H; y++) {
         for (x = 0; x < BOARD_W; x++) {
             int nb;
             if (board_get(cur, x, y) != CELL_EMPTY) continue;
-            if (!rules_in_range(range, me, x, y)) continue;
+            if (!range_mask[y][x]) continue;
             nb = live_neighbors(cur, x, y);
             if (nb == 0) continue;   /* posée dans le vide, elle meurt sans rien produire */
             if (n >= AI_MAX_CANDS) return n;

@@ -1,8 +1,19 @@
 #include "view.h"
+#include "rules.h"
+
+/* Portée à zone de fichier : trop grand pour la pile (768 octets), et
+   recalculé une seule fois par appel plutôt qu'une fois par case vide
+   (voir docs/snes-notes.md, "board rebuild cost"). */
+static u8 range_mask[BOARD_H][BOARD_W];
 
 void view_board(const Match *m, bool_t show_range, u8 out[BOARD_H][BOARD_W])
 {
     int x, y;
+
+    if (show_range) {
+        rules_range_mask(&m->range, m->turn, range_mask);
+    }
+
     for (y = 0; y < BOARD_H; y++) {
         for (x = 0; x < BOARD_W; x++) {
             Cell v = board_get(&m->board, x, y);
@@ -10,8 +21,7 @@ void view_board(const Match *m, bool_t show_range, u8 out[BOARD_H][BOARD_W])
                 out[y][x] = TILE_P1;
             } else if (v == CELL_P2) {
                 out[y][x] = TILE_P2;
-            } else if (show_range &&
-                       rules_in_range(&m->range, m->turn, x, y)) {
+            } else if (show_range && range_mask[y][x]) {
                 out[y][x] = TILE_RANGE;
             } else {
                 out[y][x] = TILE_EMPTY;
