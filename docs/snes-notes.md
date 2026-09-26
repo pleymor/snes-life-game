@@ -1019,11 +1019,31 @@ goes to ROM (`.rodata`). A two-dimensional one, or a `static const` local
 to a function, goes to `globram.data`, that is RAM filled by the copy
 above. The board seed table is a flat file-scope array for that reason.
 
-**`long` is 16 bits.** 816-tcc gives `sizeof(long) == 2`: `unsigned long
-rng = 0x2545F491UL` keeps only 0xF491, and `xs32()` in `ai.c` is a 16-bit
-generator on the console (the `x >> 17` step is 0). The console's
-`AI_EASY` draws therefore differ from the host simulator's. Nothing else
-in `src/` uses `long`.
+**`long` is 16 bits.** 816-tcc gives `sizeof(long) == 2` (and
+`sizeof(int) == 2`); there is no 32-bit integer type. The plan's global
+constraint "where 32 bits are needed, write `long` explicitly" is wrong for
+this toolchain: on the console such a `long` silently keeps its low 16
+bits. Values that need 32 bits are held as two `unsigned short` halves and
+computed half by half, with the bits that cross from one half to the other
+handled explicitly. The only such value is the xorshift32 state of the
+easy AI level: `Rng { hi, lo }` in `src/core/ai.h`, with `rng_seed()`,
+`rng_next()` and `rng_mod()` (the modulo of the 32-bit value is
+((hi mod p) * (65536 mod p) + lo mod p) mod p, which stays within 16 bits
+for p <= 255). A host test checks the halves against a 32-bit reference
+over 6 seeds x 5000 draws, and the simulator's output is unchanged. On the
+console, with `cpu_level` temporarily set to `AI_EASY`, the boards after the
+first three CPU turns of the scripted game match a host replay cell for
+cell. Only host code (`tools/sim.c`, `tests/`) still uses `long`, and it
+never runs on the console.
+
+**The library `memmove` does not handle overlap.** PVSnesLib's `memmove`
+branches to its forward block copy (`MVN`) whenever source and destination
+are in the same bank, so shifting an array up by one element smears the
+first element over the rest. The AI's candidate list was shifted that way
+when a placement added a candidate; the console then played different easy
+moves than the host from the second CPU turn on. `src/core/ai.c` now
+shifts elements with explicit loops. Do not use `memmove` on overlapping
+areas in code that runs on the console.
 
 **The 7E:8000 limit.** The C `.bss` sections are placed in bank 7E from
 7E:2000 up. PVSnesLib's own RAM sections start at 7E:8000 (e.g.
