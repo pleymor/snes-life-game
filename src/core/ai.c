@@ -552,7 +552,11 @@ static void collect_update(AiJob *j, int px, int py, int part)
                 if (pre) {
                     all_c[lo].pre = (short)pre;
                 } else {
-                    memmove(&all_c[lo], &all_c[lo + 1], (size_t)(n - lo - 1) * sizeof all_c[0]);
+                    int q;
+                    /* Décalage à la main : le memmove de la bibliothèque
+                       de la console ne gère pas les zones qui se
+                       recouvrent (docs/snes-notes.md § 10). */
+                    for (q = lo; q < n - 1; q++) all_c[q] = all_c[q + 1];
                     n--;
                 }
             } else if (pre) {
@@ -560,7 +564,10 @@ static void collect_update(AiJob *j, int px, int py, int part)
                     if (lo >= AI_MAX_CANDS) continue;   /* au-delà du plafond */
                     n = AI_MAX_CANDS - 1;               /* la dernière tombe */
                 }
-                memmove(&all_c[lo + 1], &all_c[lo], (size_t)(n - lo) * sizeof all_c[0]);
+                {
+                    int q;
+                    for (q = n; q > lo; q--) all_c[q] = all_c[q - 1];
+                }
                 all_c[lo].x = (u8)x;
                 all_c[lo].y = (u8)y;
                 all_c[lo].pre = (short)pre;
