@@ -49,7 +49,8 @@ static Board s2b;   /* somme codée des voisins sur g1b */
 static int   scores[AI_TOPK_MAX];
 
 typedef struct { u8 x, y; short pre; } Cand;
-static Cand cands[AI_MAX_CANDS];
+static Cand all_c[AI_MAX_CANDS];   /* tous les candidats, ordre de balayage */
+static Cand cands[AI_TOPK_MAX];    /* les k retenus, puis triés par score */
 
 /* Masqué sur 32 bits pour que la suite soit identique sur l'hôte, où `long`
    fait souvent 64 bits, et sur la console, où il en fait 32. Sans quoi le
@@ -120,35 +121,72 @@ static void tables_init(void)
    les 768 cases. */
 static u8  open_x[BOARD_W * BOARD_H];
 static u8  open_y[BOARD_W * BOARD_H];
-/* Attraction de chaque case ouverte (voir enemy_pull_far()), calculée à
-   la première collecte qui en a besoin puis réutilisée : elle ne dépend
-   que des adversaires, qui ne bougent pas pendant le tour. AI_PULL_UNKNOWN
-   tant qu'elle n'est pas calculée. */
-#define AI_PULL_UNKNOWN 0xFF
-static u8  open_pull[BOARD_W * BOARD_H];
 static int n_open;
+/* Indice de chaque case dans la liste des cases ouvertes, ou -1. */
+static short open_at[BOARD_H][BOARD_W];
 
-/* Ligne de jeu y de `src` (valeurs Cell) codée dans wk ; rend TRUE si elle
-   contient une cellule de code `foe`. Si `mrow` (ligne du masque de
-   portée) est donné, ajoute ses cases vides et à portée à la liste. */
-static bool_t code_row(const Board *src, int y, u8 foe, const u8 *mrow)
+/* Attraction vers l'adversaire (spec § 6.2) : max(0, 4 - distance de
+   Chebyshev à l'adversaire le plus proche). Comme 4 - max(|dx|, |dy|) =
+   min(4 - |dx|, 4 - |dy|), elle se sépare en lignes : foe_h[y][x] est le
+   max de 4 - |dx| sur les adversaires de la ligne y à trois colonnes ou
+   moins (0 sinon), et l'attraction d'une case le max, sur les lignes
+   voisines à trois ou moins, de min(4 - |dy|, foe_h). Les adversaires ne
+   bougent pas pendant le tour : foe_h se remplit une fois, à la copie. */
+static u8 foe_h[BOARD_H][BOARD_W];
+static u8 foe_row[BOARD_H];    /* la ligne contient-elle un adversaire ? */
+
+/* Ligne de jeu y de `src` (valeurs Cell) codée dans wk. Si `mrow` (ligne
+   du masque de portée) est donné, ajoute ses cases vides et à portée à la
+   liste des cases ouvertes et note ses adversaires (code `foe`) dans
+   foe_h/foe_row. */
+static void code_row(const Board *src, int y, u8 foe, const u8 *mrow)
 {
     const u8 *in = &src->c[y + 1][1];
     u8 *out = &wk.c[y + 1][1];
-    bool_t seen = FALSE;
-    int x;
+    u8 *h = &foe_h[y][0];
+    short *at = &open_at[y][0];
+    int x, d;
+
+    if (mrow) {
+        memset(h, 0, BOARD_W);
+        foe_row[y] = 0;
+    }
     for (x = 0; x < BOARD_W; x++) {
         u8 v = ai_code[in[x]];
         out[x] = v;
-        if (v == foe) seen = TRUE;
-        if (mrow && v == 0 && mrow[x]) {
-            open_x[n_open] = (u8)x;
-            open_y[n_open] = (u8)y;
-            open_pull[n_open] = AI_PULL_UNKNOWN;
-            n_open++;
+        at[x] = -1;
+        if (!mrow) continue;
+        if (v == 0) {
+            if (mrow[x]) {
+                open_x[n_open] = (u8)x;
+                open_y[n_open] = (u8)y;
+                at[x] = (short)n_open;
+                n_open++;
+            }
+        } else if (v == foe) {
+            foe_row[y] = 1;
+            for (d = -3; d <= 3; d++) {
+                u8 *c = &h[wrap_col[x + AI_PAD + d] - 1];
+                u8 w = (u8)(4 - (d < 0 ? -d : d));
+                if (*c < w) *c = w;
+            }
         }
     }
-    return seen;
+}
+
+static int pull_of(int x, int y)
+{
+    const u8 *yr = &wrap_row[y + AI_PAD];
+    int d, best = 0;
+    for (d = -3; d <= 3; d++) {
+        int yy = yr[d], h, lim;
+        if (!foe_row[yy]) continue;
+        h = foe_h[yy][x];
+        lim = 4 - (d < 0 ? -d : d);
+        if (h > lim) h = lim;
+        if (h > best) best = h;
+    }
+    return best;
 }
 
 /* ---- générations précalculées ----
@@ -158,38 +196,48 @@ static bool_t code_row(const Board *src, int y, u8 foe, const u8 *mrow)
    couvre largement les carrés utiles. */
 static u8  need_row1[BOARD_H], need_row2[BOARD_H];
 static u8  need_col1[BOARD_W], need_col2[BOARD_W];
+static u8  cand_row[BOARD_H], cand_col[BOARD_W];
 static u8  cols1[BOARD_W], cols2[BOARD_W];
 static int ncols1, ncols2;
 
-static void need_clear(void)
+/* out[i] = 1 si in contient un 1 à distance circulaire r ou moins de i,
+   sur n cases ; `wrap` replie les indices de -AI_PAD à n + AI_PAD - 1
+   (wrap_row, ou wrap_col décalé d'une case pour les colonnes). Fenêtre
+   glissante : deux lectures par case, quel que soit r. */
+static void dilate(const u8 *in, u8 *out, int n, int r, const u8 *wrap, int shift)
 {
-    memset(need_row1, 0, sizeof need_row1);
-    memset(need_row2, 0, sizeof need_row2);
-    memset(need_col1, 0, sizeof need_col1);
-    memset(need_col2, 0, sizeof need_col2);
-}
-
-/* Marque les lignes et colonnes voisines de (x, y) : jusqu'à 2 * depth - 1
-   pour g1 (le tick 2 « avec » lit g1 et s2 au rayon 2, et s2 lit g1 un
-   cran plus loin), jusqu'à 2 pour g2 à la profondeur 2. */
-static void need_mark(int x, int y, int depth)
-{
-    int d, r1 = 2 * depth - 1;
-    for (d = -r1; d <= r1; d++) {
-        need_row1[wrap_row[y + AI_PAD + d]] = 1;
-        need_col1[wrap_col[x + AI_PAD + d] - 1] = 1;
-    }
-    if (depth > 1) {
-        for (d = -2; d <= 2; d++) {
-            need_row2[wrap_row[y + AI_PAD + d]] = 1;
-            need_col2[wrap_col[x + AI_PAD + d] - 1] = 1;
-        }
+    int i, d, cnt = 0;
+    for (d = -r; d <= r; d++) cnt += in[wrap[d + AI_PAD] - shift];
+    for (i = 0; i < n; i++) {
+        out[i] = (u8)(cnt > 0);
+        cnt += in[wrap[i + r + 1 + AI_PAD] - shift];
+        cnt -= in[wrap[i - r + AI_PAD] - shift];
     }
 }
 
-static void need_lists(void)
+/* Lignes, puis colonnes, où les générations sont nécessaires autour des
+   top premiers candidats : jusqu'à 2 * depth - 1 pour g1 (le tick 2
+   « avec » lit g1 et s2 au rayon 2, et s2 lit g1 un cran plus loin),
+   jusqu'à 2 pour g2 à la profondeur 2. Deux appels, pour étaler le
+   travail. */
+static void need_rows(int top, int depth)
 {
-    int x;
+    int i;
+    memset(cand_row, 0, sizeof cand_row);
+    for (i = 0; i < top; i++) cand_row[cands[i].y] = 1;
+    dilate(cand_row, need_row1, BOARD_H, 2 * depth - 1, wrap_row, 0);
+    if (depth > 1) dilate(cand_row, need_row2, BOARD_H, 2, wrap_row, 0);
+    else memset(need_row2, 0, sizeof need_row2);
+}
+
+static void need_cols(int top, int depth)
+{
+    int i, x;
+    memset(cand_col, 0, sizeof cand_col);
+    for (i = 0; i < top; i++) cand_col[cands[i].x] = 1;
+    dilate(cand_col, need_col1, BOARD_W, 2 * depth - 1, wrap_col, 1);
+    if (depth > 1) dilate(cand_col, need_col2, BOARD_W, 2, wrap_col, 1);
+    else memset(need_col2, 0, sizeof need_col2);
     ncols1 = 0;
     ncols2 = 0;
     for (x = 0; x < BOARD_W; x++) {
@@ -248,7 +296,6 @@ static const signed char k_dx[25] = {
     -2, -1, 0, 1, 2, -2, -1, 0, 1, 2, -2, -1, 0, 1, 2,
     -2, -1, 0, 1, 2, -2, -1, 0, 1, 2
 };
-static const u8 k_r1[9] = { 6, 7, 8, 11, 12, 13, 16, 17, 18 };
 static const signed char k_nb[8] = { -6, -5, -4, -1, 1, 4, 5, 6 };
 
 static int t2[25];     /* écarts reportés sur les sommes de voisins du tick 2 */
@@ -260,6 +307,40 @@ static u8  touched[25];
 /* +1 pour `mine`, -1 pour l'autre couleur, 0 pour une case vide. */
 #define AI_SCORE(v, mine) ((v) == (mine) ? 1 : ((v) ? -1 : 0))
 
+static int ev_nt;    /* cases dans `touched` */
+static int ev_net;   /* gain net accumulé */
+
+/* La case k du rayon 1 passe de g (sans la pose) à v (avec) au tick 1. */
+static void r1_changed(int k, u8 v, u8 g, u8 mine, int depth)
+{
+    int e, d;
+    if (depth == 1) {
+        ev_net += AI_SCORE(v, mine) - AI_SCORE(g, mine);
+        return;
+    }
+    w1[k] = v;
+    chg[k] = 1;
+    if (!hit[k]) { hit[k] = 1; touched[ev_nt++] = (u8)k; }
+    d = (int)v - (int)g;
+    for (e = 0; e < 8; e++) {
+        int n = k + k_nb[e];
+        t2[n] += d;
+        if (!hit[n]) { hit[n] = 1; touched[ev_nt++] = (u8)n; }
+    }
+}
+
+/* Une case du rayon 1, à la position de stockage OFF ; CENTER : c'est la
+   pose elle-même. Déroulé neuf fois : sur la console, une boucle avec
+   tables d'indices coûte plus cher que le calcul qu'elle répète. */
+#define AI_R1(K, OFF, CENTER) do {                                        \
+        int off_ = (OFF);                                                 \
+        u8 self_ = (CENTER) ? mine : wkb[off_];                           \
+        int sum_ = s1p[off_] + ((CENTER) ? 0 : bump);                     \
+        u8 v_ = AI_RULE(self_, sum_);                                     \
+        u8 g_ = g1p[off_];                                                \
+        if (v_ != g_) r1_changed((K), v_, g_, mine, depth);               \
+    } while (0)
+
 /* Gain net de la pose du code `mine` en (x, y), g1/s1 (et g2/s2 à la
    profondeur 2) étant à jour autour de la case. */
 static int eval_delta(int x, int y, u8 mine, int depth)
@@ -269,59 +350,48 @@ static int eval_delta(int x, int y, u8 mine, int depth)
     const u8  *wkb = &wk.c[0][0];
     const u8  *g1p = &g1b.c[0][0];
     const u8  *s1p = &s1b.c[0][0];
+    int ra = ry[-1], rb = ry[0], rc = ry[1];
+    int ca = cx[-1], cb = cx[0], cc = cx[1];
     /* Ce que la pose ajoute à la somme de ses huit voisins (la case est
        vide pour un vrai candidat, mais ai_eval_local() accepte tout). */
-    int bump = (int)mine - (int)wkb[ry[0] + cx[0]];
-    int q, e, nt = 0, net = 0;
+    int bump = (int)mine - (int)wkb[rb + cb];
+    int q;
+
+    ev_nt = 0;
+    ev_net = 0;
 
     /* Tick 1 « avec » : la pose change la somme de ses huit voisins et
        devient elle-même vivante ; hors du rayon 1 rien ne change. Chaque
        case qui change reporte son écart sur ses huit voisines. */
-    for (q = 0; q < 9; q++) {
-        int k = k_r1[q];
-        int off = ry[k_dy[k]] + cx[k_dx[k]];
-        u8 self = wkb[off];
-        int sum = s1p[off];
-        u8 v, g = g1p[off];
-        int d;
-        if (k == 12) self = mine;
-        else sum += bump;
-        v = AI_RULE(self, sum);
-        if (v == g) continue;
-        if (depth == 1) {
-            net += AI_SCORE(v, mine) - AI_SCORE(g, mine);
-            continue;
-        }
-        w1[k] = v;
-        chg[k] = 1;
-        if (!hit[k]) { hit[k] = 1; touched[nt++] = (u8)k; }
-        d = (int)v - (int)g;
-        for (e = 0; e < 8; e++) {
-            int n = k + k_nb[e];
-            t2[n] += d;
-            if (!hit[n]) { hit[n] = 1; touched[nt++] = (u8)n; }
-        }
-    }
-    if (depth == 1) return net;
+    AI_R1(6,  ra + ca, 0);
+    AI_R1(7,  ra + cb, 0);
+    AI_R1(8,  ra + cc, 0);
+    AI_R1(11, rb + ca, 0);
+    AI_R1(12, rb + cb, 1);
+    AI_R1(13, rb + cc, 0);
+    AI_R1(16, rc + ca, 0);
+    AI_R1(17, rc + cb, 0);
+    AI_R1(18, rc + cc, 0);
+    if (depth == 1) return ev_net;
 
     /* Tick 2 « avec », sur les seules cases touchées ; puis remise à zéro
        des tableaux de travail pour le candidat suivant. */
     {
         const u8 *g2p = &g2b.c[0][0];
         const u8 *s2p = &s2b.c[0][0];
-        for (q = 0; q < nt; q++) {
+        for (q = 0; q < ev_nt; q++) {
             int k = touched[q];
             int off = ry[k_dy[k]] + cx[k_dx[k]];
             int sum = s2p[off] + t2[k];
             u8 self = chg[k] ? w1[k] : g1p[off];
             u8 v = AI_RULE(self, sum), g = g2p[off];
-            if (v != g) net += AI_SCORE(v, mine) - AI_SCORE(g, mine);
+            if (v != g) ev_net += AI_SCORE(v, mine) - AI_SCORE(g, mine);
             t2[k] = 0;
             chg[k] = 0;
             hit[k] = 0;
         }
     }
-    return net;
+    return ev_net;
 }
 
 int ai_eval_local(const Board *b, Cell who, int x, int y, int depth)
@@ -332,9 +402,10 @@ int ai_eval_local(const Board *b, Cell who, int x, int y, int depth)
     for (k = 0; k < BOARD_H; k++) code_row(b, k, 0, (const u8 *)0);
     board_wrap(&wk);
 
-    need_clear();
-    need_mark(x, y, depth);
-    need_lists();
+    cands[0].x = (u8)x;
+    cands[0].y = (u8)y;
+    need_rows(1, depth);
+    need_cols(1, depth);
     for (k = 0; k < BOARD_H; k++) {
         if (need_row1[k]) gen1_row(k);
     }
@@ -349,124 +420,147 @@ int ai_eval_local(const Board *b, Cell who, int x, int y, int depth)
 
 /* ---- les candidats ---- */
 
-static u8 foe_row[BOARD_H];    /* la ligne contient-elle un adversaire ? */
-static u8 foe_near[BOARD_H];   /* ... ou l'une des lignes à 3 ou moins ? */
-
-/* max(0, 4 - distance de Chebyshev à l'adversaire le plus proche) : pousse
-   l'IA vers le contact, où l'Immigration Game permet de retourner des
-   naissances. L'anneau de distance 1 est déjà connu de l'appelant (la
-   somme des voisins le dit) ; celle-ci balaie les anneaux 2 puis 3 et rend
-   dès le premier qui contient un adversaire, en sautant les lignes qui
-   n'en ont aucun (les adversaires ne bougent pas pendant le tour). */
-static int enemy_pull_far(u8 foe, int x, int y)
-{
-    const u8  *base = &wk.c[0][0];
-    const u8  *cx = &wrap_col[x + AI_PAD];
-    const u8  *yr = &wrap_row[y + AI_PAD];
-    const int *ry = &row_off[y + AI_PAD];
-    int d, k;
-
-    if (!foe_near[y]) return 0;
-    for (d = 2; d <= 3; d++) {
-        int left = cx[-d], right = cx[d];
-        if (foe_row[yr[-d]]) {
-            const u8 *row = base + ry[-d];
-            for (k = -d; k <= d; k++) if (row[cx[k]] == foe) return 4 - d;
-        }
-        if (foe_row[yr[d]]) {
-            const u8 *row = base + ry[d];
-            for (k = -d; k <= d; k++) if (row[cx[k]] == foe) return 4 - d;
-        }
-        for (k = 1 - d; k <= d - 1; k++) {
-            if (foe_row[yr[k]]) {
-                const u8 *row = base + ry[k];
-                if (row[left] == foe || row[right] == foe) return 4 - d;
-            }
-        }
-    }
-    return 0;
-}
-
 static int scan_index(const Cand *c) { return (int)c->y * BOARD_W + (int)c->x; }
 
+/* Heuristique de présélection de la case ouverte q : 2 * voisins vivants
+   + attraction, ou 0 si elle n'est pas candidate (occupée par une pose du
+   tour, ou sans voisin : posée dans le vide, elle meurt sans rien
+   produire). */
+static int cand_pre(int q, u8 foe)
+{
+    int x = open_x[q], y = open_y[q];
+    /* Coin haut-gauche du voisinage, dans le halo : lignes de stockage y
+       à y + 2, contiguës. */
+    const u8 *p = &wk.c[0][0] + row_off[y + AI_PAD] - BSTRIDE + x;
+    unsigned int sum, n1, n2, nf;
+
+    if (p[BSTRIDE + 1] != 0) return 0;
+    sum = (unsigned int)AI_SUM8(p);
+    if (sum == 0) return 0;
+    n1 = sum & (AI_E2 - 1);
+    n2 = sum >> 4;            /* AI_E2 = 16 */
+    nf = (foe == AI_E1) ? n1 : n2;
+    /* Un adversaire voisin : distance 1, attraction maximale. */
+    return 2 * (int)(n1 + n2) + (nf ? 3 : pull_of(x, y));
+}
+
 /* Examine jusqu'à AI_COLLECT_CHUNK cases de la liste des cases ouvertes à
-   partir de j->pos, et ajoute à `cands` (à partir de j->n) celles qui sont
-   encore vides et ont au moins un voisin vivant. La liste est dans l'ordre
-   de balayage (y croissant puis x croissant), et c'est cet ordre qui sert
-   de départage. Au plafond AI_MAX_CANDS, la collecte s'arrête là. */
+   partir de j->pos, et ajoute à all_c (à partir de j->n) les candidates.
+   La liste est dans l'ordre de balayage (y croissant puis x croissant), et
+   c'est cet ordre qui sert de départage. Au plafond AI_MAX_CANDS, la
+   collecte s'arrête là. */
 static void collect_chunk(AiJob *j)
 {
-    const u8 *base = &wk.c[0][0];
     int n = j->n, q = j->pos, end = q + AI_COLLECT_CHUNK;
     u8 f = ai_code[j->foe];
 
     if (end > n_open) end = n_open;
     for (; q < end; q++) {
-        int x = open_x[q], y = open_y[q];
-        /* Coin haut-gauche du voisinage, dans le halo : lignes de
-           stockage y à y + 2, contiguës. */
-        const u8 *p = base + row_off[y + AI_PAD] - BSTRIDE + x;
-        unsigned int sum, n1, n2, nf;
-        u8 pull;
-
-        if (p[BSTRIDE + 1] != 0) continue;   /* occupée par une pose du tour */
-        sum = (unsigned int)AI_SUM8(p);
-        if (sum == 0) continue;   /* posée dans le vide, elle meurt sans rien produire */
+        int pre = cand_pre(q, f);
+        if (pre == 0) continue;
         if (n >= AI_MAX_CANDS) {
             q = n_open;
             break;
         }
-        n1 = sum & (AI_E2 - 1);
-        n2 = sum >> 4;            /* AI_E2 = 16 */
-        nf = (f == AI_E1) ? n1 : n2;
-        cands[n].x = (u8)x;
-        cands[n].y = (u8)y;
-        if (nf) {
-            pull = 3;
-        } else {
-            pull = open_pull[q];
-            if (pull == AI_PULL_UNKNOWN) {
-                pull = (u8)enemy_pull_far(f, x, y);
-                open_pull[q] = pull;
-            }
-        }
-        cands[n].pre = (short)(2 * (int)(n1 + n2) + pull);
+        all_c[n].x = open_x[q];
+        all_c[n].y = open_y[q];
+        all_c[n].pre = (short)pre;
         n++;
     }
     j->n = n;
     j->pos = q;
 }
 
+static int scan_of(int x, int y) { return y * BOARD_W + x; }
+
+/* Le carré 3 x 3 d'une pose, par tiers : sa ligne (centre en premier),
+   celle du dessus, celle du dessous. */
+static const signed char k_upd_dx[9] = { 0, -1, 1, -1, 0, 1, -1, 0, 1 };
+static const signed char k_upd_dy[9] = { 0, 0, 0, -1, -1, -1, 1, 1, 1 };
+
+/* Après une pose en (px, py), seules les cases de son carré 3 x 3 changent
+   de statut : elle-même (occupée) et ses voisines (une voisine vivante de
+   plus). all_c est mise à jour en place, dans l'ordre de balayage, un
+   tiers du carré par appel (`part` 0, 1 puis 2). Même résultat qu'une
+   collecte complète, pourvu que la précédente n'ait pas été tronquée au
+   plafond (l'appelant s'en assure). */
+static void collect_update(AiJob *j, int px, int py, int part)
+{
+    u8 f = ai_code[j->foe];
+    int k, n = j->n;
+
+    /* La case posée d'abord : c'est la seule qui peut sortir de la liste
+       (ses voisines gagnent un voisin vivant, elles ne la quittent pas).
+       La retirer avant toute insertion garantit qu'une insertion qui
+       déborde du plafond ne fait tomber que ce qu'une collecte complète
+       aurait laissé de côté. */
+    for (k = 3 * part; k < 3 * part + 3; k++) {
+        int y = wrap_row[py + AI_PAD + k_upd_dy[k]];
+        int x = wrap_col[px + AI_PAD + k_upd_dx[k]] - 1;
+        {
+            int q = open_at[y][x], pre, lo, hi, key;
+            if (q < 0) continue;
+            pre = cand_pre(q, f);
+            /* Position de (x, y) dans all_c : première entrée qui ne la
+               précède pas. */
+            key = scan_of(x, y);
+            lo = 0;
+            hi = n;
+            while (lo < hi) {
+                int mid = (lo + hi) / 2;
+                if (scan_of(all_c[mid].x, all_c[mid].y) < key) lo = mid + 1;
+                else hi = mid;
+            }
+            if (lo < n && scan_of(all_c[lo].x, all_c[lo].y) == key) {
+                if (pre) {
+                    all_c[lo].pre = (short)pre;
+                } else {
+                    memmove(&all_c[lo], &all_c[lo + 1], (size_t)(n - lo - 1) * sizeof all_c[0]);
+                    n--;
+                }
+            } else if (pre) {
+                if (n >= AI_MAX_CANDS) {
+                    if (lo >= AI_MAX_CANDS) continue;   /* au-delà du plafond */
+                    n = AI_MAX_CANDS - 1;               /* la dernière tombe */
+                }
+                memmove(&all_c[lo + 1], &all_c[lo], (size_t)(n - lo) * sizeof all_c[0]);
+                all_c[lo].x = (u8)x;
+                all_c[lo].y = (u8)y;
+                all_c[lo].pre = (short)pre;
+                n++;
+            }
+        }
+    }
+    j->n = n;
+}
+
 /* `pre` vaut 2 * voisins (1 à 8) + attraction (0 à 3) : de 2 à 19. */
 #define AI_PRE_SPAN   (2 * 8 + 3 + 1)
 
 static int  pre_pos[AI_PRE_SPAN];
-static Cand picked[AI_TOPK_MAX];
 
-/* Amène les k meilleurs en tête, triés par `pre` décroissant puis par
-   ordre de balayage : un tri par dénombrement, stable, tronqué à k. Même
-   résultat qu'un tri par sélection sur cette clé totale (cands arrive dans
-   l'ordre de balayage), mais en deux passages sur n au lieu de k. */
+/* Copie dans cands les k meilleurs de all_c, triés par `pre` décroissant
+   puis par ordre de balayage : un tri par dénombrement, stable, tronqué à
+   k. Même résultat qu'un tri par sélection sur cette clé totale (all_c
+   est dans l'ordre de balayage), en deux passages sur n. */
 static void select_top(int n, int k)
 {
     int i, p, pos = 0;
 
     for (p = 0; p < AI_PRE_SPAN; p++) pre_pos[p] = 0;
-    for (i = 0; i < n; i++) pre_pos[cands[i].pre]++;
+    for (i = 0; i < n; i++) pre_pos[all_c[i].pre]++;
     for (p = AI_PRE_SPAN - 1; p >= 0; p--) {
         int c = pre_pos[p];
         pre_pos[p] = pos;
         pos += c;
     }
     for (i = 0; i < n; i++) {
-        p = cands[i].pre;
+        p = all_c[i].pre;
         if (pre_pos[p] < k) {
-            picked[pre_pos[p]] = cands[i];
+            cands[pre_pos[p]] = all_c[i];
         }
         pre_pos[p]++;
     }
-    if (n < k) k = n;
-    for (i = 0; i < k; i++) cands[i] = picked[i];
 }
 
 static void swap_cand(int i, int j)
@@ -515,21 +609,21 @@ static void collect_start(AiJob *j)
     j->i = 0;
 }
 
-/* La dernière ligne est balayée : garder les k meilleurs, puis repérer
+/* Tous les candidats sont connus : garder les k meilleurs, puis repérer
    les lignes et colonnes où les générations sont nécessaires. */
 static void collect_finish(AiJob *j)
 {
-    int i;
-    if (j->n > 0) {
-        select_top(j->n, j->k);
+    if (j->pos == 0) {
+        if (j->n > 0) {
+            select_top(j->n, j->k);
+        }
+        j->top = (j->n < j->k) ? j->n : j->k;
+        j->i = 0;
+        need_rows(j->top, j->depth);
+        j->pos = 1;
+        return;
     }
-    j->top = (j->n < j->k) ? j->n : j->k;
-    j->i = 0;
-    need_clear();
-    for (i = 0; i < j->top; i++) {
-        need_mark((int)cands[i].x, (int)cands[i].y, j->depth);
-    }
-    need_lists();
+    need_cols(j->top, j->depth);
     j->phase = AI_PH_GEN1;
     j->pos = next_needed(need_row1, 0);
 }
@@ -557,6 +651,8 @@ static int step_cost(const AiJob *j)
     switch (j->phase) {
     case AI_PH_PREP:    return AI_COST_PREP;
     case AI_PH_COLLECT: return AI_COST_COLLECT;
+    case AI_PH_UPDATE:  return AI_COST_UPDATE;
+    case AI_PH_SELECT:  return AI_COST_SELECT;
     case AI_PH_GEN1:    return AI_COST_GEN_ROW + AI_COST_GEN_2COLS * ncols1 / 2;
     case AI_PH_GEN2:    return AI_COST_GEN_ROW + AI_COST_GEN_2COLS * ncols2 / 2;
     default:            return (j->i < j->top) ? AI_COST_EVAL : AI_COST_PICK;
@@ -582,17 +678,10 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
             /* Copie codée du plateau, ligne par ligne, en notant où sont
                les adversaires. m->board n'a pas forcément son halo à jour
                (match_place() ne wrappe pas) : wk est wrappé à la fin. */
-            foe_row[j->pos] = code_row(&m->board, j->pos, ai_code[j->foe],
-                                       &m->range_mask[j->pos][0]);
+            code_row(&m->board, j->pos, ai_code[j->foe], &m->range_mask[j->pos][0]);
             j->pos++;
             if (j->pos >= BOARD_H) {
-                int y, d;
                 board_wrap(&wk);
-                for (y = 0; y < BOARD_H; y++) {
-                    u8 near = 0;
-                    for (d = -3; d <= 3; d++) near |= foe_row[wrap_row[y + AI_PAD + d]];
-                    foe_near[y] = near;
-                }
                 collect_start(j);
             }
             continue;
@@ -600,8 +689,22 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
         case AI_PH_COLLECT:
             collect_chunk(j);
             if (j->pos >= n_open) {
-                collect_finish(j);
+                j->phase = AI_PH_SELECT;
+                j->pos = 0;
             }
+            continue;
+
+        case AI_PH_UPDATE:
+            collect_update(j, (int)j->out[j->made - 1].x, (int)j->out[j->made - 1].y,
+                           j->pos);
+            if (++j->pos >= 3) {
+                j->phase = AI_PH_SELECT;
+                j->pos = 0;
+            }
+            continue;
+
+        case AI_PH_SELECT:
+            collect_finish(j);
             continue;
 
         case AI_PH_GEN1:
@@ -677,7 +780,17 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
         if (j->made >= BUDGET) {
             return TRUE;
         }
-        collect_start(j);
+        /* La pose suivante repart de la liste des candidats, mise à jour
+           autour de celle-ci ; sauf si la liste avait atteint le plafond,
+           auquel cas elle peut être incomplète : collecte complète. */
+        if (j->n < AI_MAX_CANDS) {
+            j->phase = AI_PH_UPDATE;
+            j->pos = 0;
+            j->top = 0;
+            j->i = 0;
+        } else {
+            collect_start(j);
+        }
     }
 }
 

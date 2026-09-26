@@ -419,9 +419,13 @@ static void test_le_tour_est_etale_etape_par_etape(void)
         T_TRUE(job.phase != AI_PH_COLLECT || (job.pos > before && job.pos <= before + 8));
         guard++;
     }
-    T_EQ(job.phase, AI_PH_GEN1);
+    T_EQ(job.phase, AI_PH_SELECT);
     T_EQ(job.n, pinned_sparse[0][7]);
+    T_FALSE(ai_step(&job, &m, &rng, AI_COST_SELECT));   /* les k meilleurs, lignes */
+    T_EQ(job.phase, AI_PH_SELECT);
     T_EQ(job.top, AI_TOPK_MAX_PINNED);
+    T_FALSE(ai_step(&job, &m, &rng, AI_COST_SELECT));   /* colonnes */
+    T_EQ(job.phase, AI_PH_GEN1);
 
     guard = 0;
     while (job.phase != AI_PH_EVAL && guard < 4 * BOARD_H) {

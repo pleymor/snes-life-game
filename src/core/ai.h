@@ -11,11 +11,16 @@ typedef enum { AI_EASY = 0, AI_NORMAL = 1 } AiLevel;
 int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET]);
 
 /* Étapes d'un tour (AiJob.phase), dans l'ordre : copie codée du plateau
-   et liste des cases vides à portée (une fois par tour), puis pour chaque
-   pose : collecte des candidats parmi ces cases,
+   et liste des cases vides à portée (une fois par tour) ; collecte des
+   candidats parmi ces cases pour la première pose, simple mise à jour
+   autour de la pose précédente pour les suivantes ; puis pour chaque pose :
+   sélection des k meilleurs,
    générations sans la pose autour des candidats retenus (g1 puis g2),
    évaluation des candidats, pose du meilleur. */
-enum { AI_PH_PREP, AI_PH_COLLECT, AI_PH_GEN1, AI_PH_GEN2, AI_PH_EVAL };
+enum {
+    AI_PH_PREP, AI_PH_COLLECT, AI_PH_UPDATE, AI_PH_SELECT,
+    AI_PH_GEN1, AI_PH_GEN2, AI_PH_EVAL
+};
 
 /* Un tour d'IA reprenable, étalé sur plusieurs appels à ai_step() pour que
    la boucle de jeu continue d'animer l'écran pendant la réflexion (spec
@@ -46,11 +51,13 @@ typedef struct {
    première étape, puis les suivantes tant que leur coût tient dans ce qui
    reste du budget. */
 #define AI_COST_PREP      37   /* une ligne de la copie codée */
-#define AI_COST_COLLECT   39   /* quatre cases ouvertes examinées */
+#define AI_COST_COLLECT   21   /* quatre cases ouvertes examinées */
+#define AI_COST_UPDATE    50   /* un tiers de la mise à jour autour de la pose */
+#define AI_COST_SELECT    70   /* une moitié de la sélection des k meilleurs */
 #define AI_COST_GEN_ROW    2   /* une ligne de g1 ou de g2... */
 #define AI_COST_GEN_2COLS  5   /* ... plus ceci par paire de colonnes calculées */
-#define AI_COST_EVAL      40   /* un candidat */
-#define AI_COST_PICK      67   /* la pose du meilleur */
+#define AI_COST_EVAL      37   /* un candidat */
+#define AI_COST_PICK      60   /* la pose du meilleur */
 
 /* Démarre un tour d'IA. Ne lit presque rien : tout le travail se fait
    dans ai_step(), étape par étape. */
