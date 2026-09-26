@@ -29,6 +29,26 @@ int board_count(const Board *b, Cell who)
     return n;
 }
 
+/* Les deux couleurs en un seul passage des BOARD_H*BOARD_W cases : évite
+   à un appelant qui veut les deux comptes (view_hud) de balayer le
+   plateau deux fois de suite pour ça (fix round 1, § c). */
+void board_count_pair(const Board *b, int *p1, int *p2)
+{
+    int x, y, c1 = 0, c2 = 0;
+    for (y = 1; y <= BOARD_H; y++) {
+        for (x = 1; x <= BOARD_W; x++) {
+            u8 v = b->c[y][x];
+            if (v == (u8)CELL_P1) {
+                c1++;
+            } else if (v == (u8)CELL_P2) {
+                c2++;
+            }
+        }
+    }
+    *p1 = c1;
+    *p2 = c2;
+}
+
 void board_wrap(Board *b)
 {
     int x, y;

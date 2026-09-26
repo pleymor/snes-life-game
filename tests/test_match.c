@@ -171,6 +171,37 @@ static void test_une_partie_finie_est_gelee(void)
     T_FALSE(match_place(&m, 5, 5));
 }
 
+/* ---- fix round 1 : le masque de portée mis en cache dans Match ---- */
+
+/* Compare m.range_mask, cellule par cellule, à ce que rules_in_range()
+   rendrait sur le même instantané/joueur : la garantie que begin_turn()
+   garde bien le masque à jour (perf review, docs/snes-notes.md § 8). */
+static void check_range_mask_matches_in_range(void)
+{
+    int x, y;
+    for (y = 0; y < BOARD_H; y++) {
+        for (x = 0; x < BOARD_W; x++) {
+            bool_t expected = rules_in_range(&m.range, m.turn, x, y);
+            T_EQ(m.range_mask[y][x], expected ? 1 : 0);
+        }
+    }
+}
+
+static void test_le_masque_de_portee_suit_le_tour_courant(void)
+{
+    match_start(&m);
+    check_range_mask_matches_in_range();   /* après match_start (P1) */
+
+    T_TRUE(match_place(&m, 5, 13));
+    match_end_turn(&m);                    /* P1 -> P2, pas de tick */
+    T_EQ(m.turn, CELL_P2);
+    check_range_mask_matches_in_range();   /* après le changement de tour */
+
+    match_end_turn(&m);                    /* P2 termine : un tick a lieu */
+    T_EQ(m.turn, CELL_P1);
+    check_range_mask_matches_in_range();   /* après un tick */
+}
+
 void suite_match(void)
 {
     T_RUN(test_trois_poses_puis_le_budget_est_epuise);
@@ -185,4 +216,5 @@ void suite_match(void)
     T_RUN(test_le_plafond_tranche_a_la_population);
     T_RUN(test_le_plafond_a_egalite_donne_un_nul);
     T_RUN(test_une_partie_finie_est_gelee);
+    T_RUN(test_le_masque_de_portee_suit_le_tour_courant);
 }

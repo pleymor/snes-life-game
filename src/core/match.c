@@ -27,6 +27,7 @@ static void begin_turn(Match *m, Cell who)
     m->turn = who;
     m->placed = 0;
     m->range = m->board;
+    rules_range_mask(&m->range, who, m->range_mask);
 }
 
 void match_start(Match *m)
@@ -52,9 +53,11 @@ bool_t match_place(Match *m, int x, int y)
     if (m->winner != WINNER_NONE)  return FALSE;
     if (m->placed >= BUDGET)       return FALSE;
     if (board_get(&m->board, x, y) != CELL_EMPTY) return FALSE;
-    /* La portée se lit sur l'instantané, pas sur le plateau courant : une
-       cellule posée à l'instant ne doit pas étendre la zone de pose. */
-    if (!rules_in_range(&m->range, m->turn, x, y)) return FALSE;
+    /* La portée se lit sur le masque figé au début du tour (begin_turn),
+       pas recalculée ici : une cellule posée à l'instant ne doit pas
+       étendre la zone de pose, et rules_in_range() par case serait le
+       même calcul refait pour rien (fix round 1). */
+    if (!m->range_mask[y][x]) return FALSE;
 
     board_set(&m->board, x, y, m->turn);
     m->history[m->placed].x = (u8)x;
