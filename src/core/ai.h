@@ -10,31 +10,46 @@ typedef enum { AI_EASY = 0, AI_NORMAL = 1 } AiLevel;
    Rend le nombre de coups écrits dans `out`, de 0 à BUDGET. */
 int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET]);
 
-/* Task 11 : un appel à ai_choose() mesuré en jeu réel coûte environ 1900
-   frames (docs/snes-notes.md § 9), bien au-delà du seuil de 30 frames fixé
-   par la tâche — rendu reprenable ci-dessous. `lvl` n'est pas dans la liste
-   du brief mais est indispensable à ai_step() pour choisir entre le
-   départage aléatoire (AI_EASY) et le meilleur score (AI_NORMAL) sans le
-   redemander à chaque appel ; seul écart au brief, consigné dans le rapport
-   de la tâche 11. */
+/* Un tour d'IA reprenable, étalé sur plusieurs appels à ai_step() pour que
+   la boucle de jeu continue d'animer l'écran pendant la réflexion (spec
+   § 6.3). `lvl` ne figurait pas dans la structure prévue : ai_step() en a
+   besoin pour choisir entre le départage aléatoire (AI_EASY) et le
+   meilleur score (AI_NORMAL) sans le redemander à chaque appel.
+
+   Un seul AiJob à la fois : le plateau de travail, les candidats et leurs
+   scores sont des tableaux statiques d'ai.c, partagés. Démarrer un second
+   tour (ou appeler ai_choose()) avant la fin du premier corrompt celui-ci. */
 typedef struct {
     Cell    me, foe;
     AiLevel lvl;
-    int     depth, k, n, top, i;   /* i : candidat en cours d'évaluation */
+    int     depth, k;
+    int     row;    /* ligne suivante à balayer ; BOARD_H : collecte finie */
+    int     n;      /* candidats rassemblés pour le coup courant */
+    int     top;    /* candidats retenus (au plus k) une fois la collecte finie */
+    int     i;      /* candidat en cours d'évaluation */
     int     made;
     Move    out[BUDGET];
 } AiJob;
 
-/* Démarre un tour d'IA : fige le plateau de travail et rassemble/trie les
-   candidats du premier coup. Ne consomme aucun budget (le brief ne le
-   compte pas dans ai_step() ; voir ai.c, la collecte d'un tour de candidats
-   coûte un seul balayage du plateau, sans commune mesure avec le coût des
-   32 évaluations ai_eval_local() qui suivent). */
+/* Coût de chaque étape d'ai_step(), en unités de budget. Une unité vaut à
+   peu près le balayage d'une ligne du plateau à la recherche de
+   candidats ; les rapports viennent de mesures sur la console
+   (docs/snes-notes.md § 9). Un appel fait toujours au moins une étape, et
+   s'arrête dès que la somme des coûts atteint le budget. */
+#define AI_COST_ROW    1
+#define AI_COST_EVAL   4
+#define AI_COST_PICK   2
+
+/* Démarre un tour d'IA : fige et wrappe le plateau de travail. Ne balaie
+   rien : la collecte des candidats se fait ligne par ligne dans ai_step(). */
 void ai_begin(AiJob *j, const Match *m, AiLevel lvl);
 
-/* Évalue jusqu'à `budget` candidats (le seul coût mesuré comme significatif,
-   docs/snes-notes.md § 9), puis rend. TRUE quand tout est fini : `j->out`/
-   `j->made` sont alors le résultat complet, au format de ai_choose(). */
+/* Avance le tour d'au moins une étape, et tant que `budget` n'est pas
+   épuisé : une ligne de collecte (AI_COST_ROW), une évaluation de
+   candidat (AI_COST_EVAL), ou la pose du meilleur candidat
+   (AI_COST_PICK). TRUE quand tout est fini : `j->out`/`j->made` sont alors
+   le résultat complet, au format de ai_choose(). Le choix ne dépend pas
+   du découpage en appels. */
 bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget);
 
 /* Gain net que produit la pose de `who` en (x, y) après `depth` ticks :

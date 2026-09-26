@@ -206,56 +206,50 @@ static int enemy_pull_far(const Board *b, u8 foe, int x, int y)
 
 static int scan_index(const Cand *c) { return (int)c->y * BOARD_W + (int)c->x; }
 
-/* Remplit `cands` dans l'ordre de balayage : y croissant puis x croissant.
-   C'est cet ordre qui sert de départage. `range_mask` est déjà celui du
-   joueur courant (fix round 1 : m->range_mask, tenu à jour par
-   begin_turn() dans match.c pour tout le tour), donc plus recalculé ici.
-   `cur` doit avoir été wrappé : les voisins se lisent dans le halo, à
-   décalages constants depuis un pointeur de ligne, comme life_tick(). */
-static int collect(const Board *cur, const u8 (*range_mask)[BOARD_W], Cell foe)
+/* Ajoute à `cands` (à partir de j->n) les candidats de la ligne j->row,
+   dans l'ordre de balayage : y croissant puis x croissant, et c'est cet
+   ordre qui sert de départage. `range_mask` est déjà celui du joueur
+   courant (fix round 1 : m->range_mask, tenu à jour par begin_turn() dans
+   match.c pour tout le tour), donc plus recalculé ici. `work` est wrappé :
+   les voisins se lisent dans le halo, à décalages constants depuis un
+   pointeur de ligne, comme life_tick(). Au plafond AI_MAX_CANDS, la
+   collecte s'arrête là, lignes suivantes comprises. */
+static void collect_row(AiJob *j, const u8 *mrow)
 {
-    int x, y, n = 0;
-    const u8 *row = &cur->c[1][1];
-    const u8 *mrow = &range_mask[0][0];
-    u8 f = (u8)foe;
+    int x, n = j->n, y = j->row;
+    const u8 *row = &work.c[y + 1][1];
+    u8 f = (u8)j->foe;
 
-    if (!wrap_ready) wrap_init();
-    for (y = 0; y < BOARD_H; y++) {
-        for (x = 0; x < BOARD_W; x++) {
-            const u8 *p;
-            u8 v;
-            int nb = 0;
-            bool_t adj = FALSE;
+    for (x = 0; x < BOARD_W; x++) {
+        const u8 *p;
+        u8 v;
+        int nb = 0;
+        bool_t adj = FALSE;
 
-            if (row[x] != CELL_EMPTY) continue;
-            if (!mrow[x]) continue;
+        if (row[x] != CELL_EMPTY) continue;
+        if (!mrow[x]) continue;
 
-            p = row + x - BSTRIDE - 1;
-            v = p[0];               if (v) { nb++; if (v == f) adj = TRUE; }
-            v = p[1];               if (v) { nb++; if (v == f) adj = TRUE; }
-            v = p[2];               if (v) { nb++; if (v == f) adj = TRUE; }
-            v = p[BSTRIDE];         if (v) { nb++; if (v == f) adj = TRUE; }
-            v = p[BSTRIDE + 2];     if (v) { nb++; if (v == f) adj = TRUE; }
-            v = p[2 * BSTRIDE];     if (v) { nb++; if (v == f) adj = TRUE; }
-            v = p[2 * BSTRIDE + 1]; if (v) { nb++; if (v == f) adj = TRUE; }
-            v = p[2 * BSTRIDE + 2]; if (v) { nb++; if (v == f) adj = TRUE; }
+        p = row + x - BSTRIDE - 1;
+        v = p[0];               if (v) { nb++; if (v == f) adj = TRUE; }
+        v = p[1];               if (v) { nb++; if (v == f) adj = TRUE; }
+        v = p[2];               if (v) { nb++; if (v == f) adj = TRUE; }
+        v = p[BSTRIDE];         if (v) { nb++; if (v == f) adj = TRUE; }
+        v = p[BSTRIDE + 2];     if (v) { nb++; if (v == f) adj = TRUE; }
+        v = p[2 * BSTRIDE];     if (v) { nb++; if (v == f) adj = TRUE; }
+        v = p[2 * BSTRIDE + 1]; if (v) { nb++; if (v == f) adj = TRUE; }
+        v = p[2 * BSTRIDE + 2]; if (v) { nb++; if (v == f) adj = TRUE; }
 
-            if (nb == 0) continue;   /* posée dans le vide, elle meurt sans rien produire */
-            if (n >= AI_MAX_CANDS) return n;
-            cands[n].x = (u8)x;
-            cands[n].y = (u8)y;
-            cands[n].pre = (short)(2 * nb + (adj ? 3 : enemy_pull_far(cur, f, x, y)));
-            n++;
+        if (nb == 0) continue;   /* posée dans le vide, elle meurt sans rien produire */
+        if (n >= AI_MAX_CANDS) {
+            j->row = BOARD_H - 1;   /* ai_step() l'avance à BOARD_H : fini */
+            break;
         }
-        row += BSTRIDE;
-        mrow += BOARD_W;
+        cands[n].x = (u8)x;
+        cands[n].y = (u8)y;
+        cands[n].pre = (short)(2 * nb + (adj ? 3 : enemy_pull_far(&work, f, x, y)));
+        n++;
     }
-    return n;
-}
-
-static void swap_cand(int i, int j)
-{
-    Cand t = cands[i]; cands[i] = cands[j]; cands[j] = t;
+    j->n = n;
 }
 
 /* `pre` vaut 2 * voisins (1 à 8) + attraction (0 à 3) : de 2 à 19. */
@@ -290,6 +284,11 @@ static void select_top(int n, int k)
     for (i = 0; i < k; i++) cands[i] = picked[i];
 }
 
+static void swap_cand(int i, int j)
+{
+    Cand t = cands[i]; cands[i] = cands[j]; cands[j] = t;
+}
+
 /* Amène les trois meilleurs par score évalué en tête, cands et scores
    déplacés ensemble. */
 static void select_top3_by_score(int top)
@@ -313,15 +312,19 @@ static void select_top3_by_score(int top)
     }
 }
 
-/* Rassemble et trie les candidats du coup courant (j->made) dans le plateau
-   de travail. Appelée par ai_begin() pour le premier coup, puis par
-   ai_step() lui-même après chaque pose tant qu'il reste des coups à jouer
-   dans le budget du tour (`BUDGET`). */
-static void collect_round(AiJob *j, const Match *m)
+/* Prépare la collecte des candidats du coup courant (j->made) : ai_step()
+   balaiera ensuite une ligne du plateau de travail par étape. */
+static void collect_start(AiJob *j)
 {
-    /* Cast expliqué à l'identique de l'ancien ai_choose() : nécessaire à
-       816-tcc seulement (voir plus bas), sans changement de comportement. */
-    j->n = collect(&work, (const u8 (*)[BOARD_W])m->range_mask, j->foe);
+    j->row = 0;
+    j->n = 0;
+    j->top = 0;
+    j->i = 0;
+}
+
+/* La dernière ligne est balayée : garder les k meilleurs. */
+static void collect_finish(AiJob *j)
+{
     if (j->n > 0) {
         select_top(j->n, j->k);
     }
@@ -338,12 +341,13 @@ void ai_begin(AiJob *j, const Match *m, AiLevel lvl)
     j->foe   = (j->me == CELL_P1) ? CELL_P2 : CELL_P1;
     j->made  = 0;
 
-    /* collect() lit les voisins dans le halo : m->board ne l'a pas
+    if (!wrap_ready) wrap_init();
+    /* collect_row() lit les voisins dans le halo : m->board ne l'a pas
        forcément à jour (match_place() ne wrappe pas). */
     work = m->board;
     board_wrap(&work);
 
-    collect_round(j, m);
+    collect_start(j);
 }
 
 bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
@@ -351,21 +355,27 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
     while (budget > 0) {
         int pick, i;
 
+        if (j->row < BOARD_H) {
+            collect_row(j, &m->range_mask[j->row][0]);
+            j->row++;
+            budget -= AI_COST_ROW;
+            if (j->row >= BOARD_H) {
+                collect_finish(j);
+            }
+            continue;
+        }
+
         if (j->i < j->top) {
-            /* Le seul coût mesuré comme significatif (docs/snes-notes.md
-               § 9) : c'est lui, et lui seul, que `budget` limite. */
             scores[j->i] = ai_eval_local(&work, j->me,
                                         (int)cands[j->i].x, (int)cands[j->i].y,
                                         j->depth);
             j->i++;
-            budget--;
+            budget -= AI_COST_EVAL;
             continue;
         }
 
         /* Tous les candidats du coup courant sont notés (ou il n'y en
-           avait aucun) : fixer la pose et enchaîner ne consomme aucun
-           budget, comme la collecte elle-même (ai_begin()/collect_round(),
-           ci-dessus). */
+           avait aucun) : fixer la pose, puis relancer la collecte. */
         if (j->top == 0 || j->made >= BUDGET) {
             return TRUE;
         }
@@ -393,11 +403,12 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
         board_set(&work, (int)cands[pick].x, (int)cands[pick].y, j->me);
         board_wrap(&work);
         j->made++;
+        budget -= AI_COST_PICK;
 
         if (j->made >= BUDGET) {
             return TRUE;
         }
-        collect_round(j, m);
+        collect_start(j);
     }
 
     return FALSE;
@@ -409,15 +420,12 @@ int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET])
     int i;
 
     ai_begin(&job, m, lvl);
-    /* Budget "infini" : le plus grand nombre de candidats qu'un seul
-       collect() puisse produire (AI_MAX_CANDS), très au-dessus du total
-       réellement possible sur un tour entier (BUDGET * AI_TOPK_MAX = 96) ;
-       un seul appel à ai_step() termine donc tout le tour. Garde ai_choose()
-       identique en comportement à avant la tâche 11 : tous les tests de la
-       tâche 6 restent valides sans changement (task 11 brief). */
-    while (!ai_step(&job, m, rng, AI_MAX_CANDS)) {
-        /* rien : ai_step() a déjà tout consommé en un appel dans ce cas ;
-           la boucle n'existe que pour rester correcte si ça changeait. */
+    /* Le plus grand budget qu'un `int` de 16 bits puisse porter : un tour
+       entier (72 lignes, 96 évaluations, 3 poses au plus) y tient
+       largement, donc un seul appel à ai_step() suffit ; la boucle ne sert
+       qu'à rester correcte si les coûts changeaient. */
+    while (!ai_step(&job, m, rng, 32767)) {
+        /* rien */
     }
 
     for (i = 0; i < job.made; i++) out[i] = job.out[i];

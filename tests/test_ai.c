@@ -220,11 +220,11 @@ static void check_step_equals_once(AiLevel lvl, bool_t dense, unsigned long seed
     if (dense) fill_match(seed, turn, DENSE); else pair_match();
     rng_stepped = 99UL;
     ai_begin(&job, &m, lvl);
-    if (dense && lvl == AI_NORMAL) {
-        T_TRUE(job.n > job.k);
-    }
     while (!ai_step(&job, &m, &rng_stepped, 1)) {
-        /* un candidat à la fois */
+        /* une étape à la fois */
+        if (job.made == 0 && job.row == BOARD_H && dense && lvl == AI_NORMAL) {
+            T_TRUE(job.n > job.k);
+        }
     }
 
     T_EQ(job.made, n_once);
@@ -300,6 +300,18 @@ static const u8 pinned_sparse[6][8] = {
    denses l'atteignent, la collecte doit s'y arrêter dans l'ordre de
    balayage. */
 #define AI_MAX_CANDS_PINNED 256
+#define AI_TOPK_MAX_PINNED  32
+
+/* Démarre un tour normal et le mène jusqu'à la fin de la première
+   collecte : job.n est alors le nombre de candidats du premier coup. */
+static void first_collect(AiJob *job)
+{
+    unsigned long rng = 1UL;
+    ai_begin(job, &m, AI_NORMAL);
+    while (job->row < BOARD_H) {
+        ai_step(job, &m, &rng, 1);
+    }
+}
 
 static void check_pinned(const u8 row[7], int n, const Move got[BUDGET])
 {
@@ -334,7 +346,7 @@ static void test_les_choix_de_lia_sont_epingles(void)
         for (t = (int)CELL_P1; t <= (int)CELL_P2; t++) {
             AiJob job;
             fill_match(pin_seeds[s], (Cell)t, SPARSE);
-            ai_begin(&job, &m, AI_NORMAL);
+            first_collect(&job);
             T_EQ(job.n, pinned_sparse[row][7]);
             rng = 12345UL;
             n = ai_choose(&m, AI_NORMAL, &rng, mv);
@@ -345,7 +357,7 @@ static void test_les_choix_de_lia_sont_epingles(void)
     for (s = 0; s < 3; s++) {
         AiJob job;
         fill_match(pin_seeds[s], CELL_P1, DENSE);
-        ai_begin(&job, &m, AI_NORMAL);
+        first_collect(&job);
         T_EQ(job.n, AI_MAX_CANDS_PINNED);
     }
 
@@ -362,6 +374,36 @@ static void test_les_choix_de_lia_sont_epingles(void)
     T_EQ(rng, 3843456730UL);
 }
 
+/* La collecte des candidats est étalée elle aussi : ai_begin() ne balaie
+   rien, et chaque pas d'une unité de budget balaie une seule ligne du
+   plateau. Une évaluation coûte AI_COST_EVAL unités ; un budget plus
+   petit en fait quand même une (jamais de pas qui n'avance pas). */
+static void test_la_collecte_est_etalee_ligne_par_ligne(void)
+{
+    AiJob job;
+    unsigned long rng = 1UL;
+    int y;
+
+    fill_match(pin_seeds[0], CELL_P1, SPARSE);
+    ai_begin(&job, &m, AI_NORMAL);
+    T_EQ(job.row, 0);
+    T_EQ(job.n, 0);
+    for (y = 1; y <= BOARD_H; y++) {
+        T_FALSE(ai_step(&job, &m, &rng, AI_COST_ROW));
+        T_EQ(job.row, y);
+        T_EQ(job.i, 0);
+    }
+    T_EQ(job.n, pinned_sparse[0][7]);
+    T_EQ(job.top, AI_TOPK_MAX_PINNED);
+
+    T_FALSE(ai_step(&job, &m, &rng, AI_COST_EVAL));
+    T_EQ(job.i, 1);
+    T_FALSE(ai_step(&job, &m, &rng, 1));
+    T_EQ(job.i, 2);
+    T_FALSE(ai_step(&job, &m, &rng, 2 * AI_COST_EVAL));
+    T_EQ(job.i, 4);
+}
+
 void suite_ai(void)
 {
     T_RUN(test_la_fenetre_locale_egale_la_simulation_complete);
@@ -372,4 +414,5 @@ void suite_ai(void)
     T_RUN(test_une_partie_ia_contre_ia_se_termine);
     T_RUN(test_ai_step_par_1_egale_ai_choose_dune_traite);
     T_RUN(test_les_choix_de_lia_sont_epingles);
+    T_RUN(test_la_collecte_est_etalee_ligne_par_ligne);
 }
