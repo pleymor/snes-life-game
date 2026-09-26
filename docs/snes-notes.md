@@ -135,6 +135,23 @@ human at a screen. Prefer this over the GUI Snes9x install for anything that
 needs to run unattended (CI, agent-driven verification); keep Snes9x around
 only for a human to sanity-check something interactively.
 
+**Foreground launches can hang forever and ignore `SIGALRM` (task 10, three
+agents lost to this)**: running the RetroArch command above directly in the
+foreground, even wrapped in a shell-level timeout (`perl -e 'alarm N; exec
+...'` or equivalent), is not safe — RetroArch sometimes sits past the alarm
+without ever receiving it, and the wrapping call then blocks forever, taking
+down whatever launched it. Always launch RetroArch in the **background**
+and poll for it from the outside instead of trusting any in-process alarm:
+start the process with `&`, remember its PID (`$!`), poll `kill -0 $pid`
+once a second up to a hard limit, and `kill -9 $pid` if it is still alive
+past that limit. This is exactly what `.superpowers/sdd/*/cap.sh` does
+(`ROM FRAMES OUT LIMIT_S`, prints `frames=N rc=0 <bytes>` on success or
+`frames=N HUNG (killed after ${LIM}s)` on timeout) — the script itself is a
+workspace tool, not part of this repo, but the pattern (background launch +
+external poll + `SIGKILL` watchdog, never a foreground wait) is the
+reusable lesson: it is the only reliable way found so far to bound a
+RetroArch headless capture from an agent or a CI job.
+
 ## 3. Produces — the exact, verified PVSnesLib API
 
 All symbols below come from `$PVSNESLIB_HOME/pvsneslib/include/snes/*.h`
@@ -670,3 +687,39 @@ on this CPU, not just a screenshot-timing inconvenience. Still worth a
 quick sweep/measurement rather than a guess when verifying a blink or
 any other periodic effect on screen, since a regression here silently
 un-does the 1:1 loop/VBlank guarantee without any compiler warning.
+
+## 8. Task 10 — a range-shown board rebuild costs ~350 raw frames (~5.8 s), not sub-frame
+
+`render_board_now()`'s `view_board()` (`src/core/view.c`) calls
+`rules_in_range()` for every empty cell of the 768-cell board when
+`show_range` is true (dozens of cells around each figure, on this board
+roughly 700+ of the 768). Unlike §7's HUD case, this call is already
+gated by `board_dirty`/the snapshot comparison in `main.c` — it does *not*
+run every frame — but every time it *does* run (every placement, undo, and
+turn switch, since `cur.show_range` defaults `TRUE` and this task's script
+only ever turns it off and back on once), the call itself is expensive
+enough to blow through many VBlank periods in one go, not just tip one
+iteration slightly over budget. The whole computation happens **inside**
+the loop iteration that reads the input, *before* that iteration's own
+`WaitForVBlank()` — so the PPU keeps showing the previous frame's
+VRAM/OAM contents (nothing has been DMA'd yet) for as many raw frames as
+the computation takes, and the screen visibly "jumps" to the new state
+all at once once `render_vblank()`'s DMA finally runs.
+
+Measured (task 10 verification, `.superpowers/sdd/2026-09-14-immigration/
+task-10-report.md`) by bisecting `WS/cap.sh` captures around a single
+`SELECT` toggle (off = cheap, occupancy-only scan; back on = expensive,
+with `rules_in_range`) at a fixed cursor position, using the range-dot
+pixel count as the visible signal: the cheap (no-range) rebuild costs
+roughly ~20 raw frames; the expensive (range-shown) rebuild costs roughly
+**~350 raw frames**, cross-checked against an independent transition (the
+first placement) landing within the predicted window. 350 raw NTSC frames
+is ~5.8 real seconds of total visual freeze on every single placement,
+undo, and turn switch — confirmed, not fixed (per this task's explicit
+">30 frames, don't optimise, report it" ruling). **Consequence for later
+tasks**: a per-*dirty-event* cost, not just a per-*frame* cost, can also
+blow the loop's real-time budget by orders of magnitude on this CPU;
+`rules_in_range`'s O(cells × radius²) toroidal Chebyshev-distance check
+run ~700 times per rebuild is the likely culprit and is a candidate for
+a future optimisation task (e.g. only rescanning cells near the figures
+that actually moved, instead of the whole board) — out of scope here.
