@@ -854,7 +854,7 @@ Re-measured the same way (bisecting headless captures around the same
   is ever needed. Screenshots captured for this measurement are not
   archived in this repo.
 
-## 9. Task 11 — the CPU turn: ~1900 raw frames at first, ~110 now
+## 9. Task 11 — the CPU turn: ~1900 raw frames at first, ~170 now
 
 ### 9.1 The first measurement: ~1900 frames for one blocking `ai_choose()`
 
@@ -897,7 +897,8 @@ Measured on that turn, step by step (raw frames per CPU turn):
 | Window tick unrolled (life_tick's pointer pattern) and limited to its light cone; window loaded once through wrap tables; candidate collection by row pointer, halo and ring scan | 508 |
 | Second pass recomputes only the placed cell's cone | 425 |
 | Redesign below, first version, iterations not yet fitted to a frame | 247 |
-| Final (below), `AI_STEP_BUDGET` 90 | **110 (100 iterations)** |
+| Fix round 1 final, `AI_STEP_BUDGET` 90 (invalid: evaluations degenerate, see § 9.4) | 110 (100 iterations) |
+| Fix round 2, real evaluations, costs recalibrated, budget 90 | **171 (159 iterations)** |
 
 The window-based evaluation stayed near three frames per candidate even
 after these changes. An on-console micro-benchmark (60 repetitions each)
@@ -917,7 +918,7 @@ column sums gained only 425 -> 415 frames and was not kept.
 - Each candidate is then evaluated incrementally: tick 1 "with" on its 9
   cells from s1; the changes against g1 are added to the s2 sums of their
   neighbours; tick 2 "with" is computed only on the touched cells and
-  compared with g2. About 0.37 frame per candidate instead of 2.9.
+  compared with g2. About 0.75 frame per candidate instead of 2.9 (§ 9.4).
 - The work board is coded (blue 1, red 16): the sum of eight neighbours
   carries both counts, and the rule is read from two tables built from
   `LIFE_RULE`.
@@ -938,6 +939,9 @@ random boards) found no difference.
 Work per phase on that turn, measured by running each phase blocking
 (about +-1 frame per block): copy 9, candidate collection 4, list updates
 3, selection 7, generations 18, evaluations 33 — about 77 frames of work.
+These figures were taken with degenerate evaluations (§ 9.4); the fix
+round 2 figures are copy 9, collection 4, updates 3, selection 7,
+generations 30, evaluations 67 — about 120 frames of work.
 
 **Spreading it over frames.** `ai_step()` takes a budget in units of about
 1/100 frame; each step (a board row copied, four open cells examined, a
@@ -961,7 +965,73 @@ HUD icon on, off, on, with the board unchanged and the cursor hidden.
   of a frame (software division by 10). The measurement build redraws them
   only when they change.
 - Statics without an initializer did not start at zero in this build (the
-  counters showed 9999): initialize them explicitly.
+  counters showed 9999): see § 10.
 - Headless captures past about 500 frames hung while the host display was
   asleep, even for an unchanged ROM. Wake the display and keep it awake
   (for example `caffeinate -u`) before a long capture.
+
+### 9.4 Fix round 2 — the round-1 figure measured degenerate evaluations
+
+The incremental evaluation keeps three small scratch arrays (`t2`, `chg`,
+`hit` in `src/core/ai.c`) that it expects at zero on entry and clears
+behind itself. Nothing cleared them the first time, and the console RAM is
+not zeroed (§ 10): with the emulator's 0x55 fill every `hit` entry looked
+already listed, no cell was ever compared at tick 2, every depth-2 score
+was 0, and `AI_NORMAL` played the first retained candidate. The 110-frame
+figure of § 9.2 was measured on that. `ai_begin()` and `ai_eval_local()`
+now rebuild their tables and clear the scratch arrays every time, and a
+host test fills all of ai.c's static memory with 0x55 or 0xFF before
+replaying the pinned choices.
+
+With real evaluations the first scripted CPU turn takes **171 frames for
+159 loop iterations** (budget 90; budget 100: 176 / 151), above the
+spec's 90-120. The candidate costs about 0.75 frame; `AI_COST_EVAL` and
+`AI_COST_SELECT` were recalibrated from the per-phase figures above. The
+moves the console plays on that turn, read back from a capture, match the
+host replay cell for cell. Two captures 16 frames apart during the turn
+(raw 960 and 976 on `build/life-script.sfc`) show the red icon off, then
+on.
+
+## 10. RAM at power-on, initialised statics, and the 7E:8000 limit
+
+**The RAM is not zeroed.** PVSnesLib's start-up code clears only a few
+bytes at 7E:2000 (the size of whichever `.bss` section the linker's
+`SECTIONSTART_.bss` symbol resolves to, since every C object names its
+section `.bss`). Every other C static starts with whatever the RAM held:
+0x55 in snes9x, anything on hardware. No static in `src/` may rely on an
+implicit zero: each module sets its state in its init path
+(`render_init()`, `input_init()`, `match_start()`, `ai_begin()`, the top
+of `main()`).
+
+**Initialised statics are copied from ROM.** 816-tcc puts a static with an
+initializer in the `globram.data` RAM section (bank 7F) and its value in
+the `glob.data` ROM section; the start-up code copies one to the other.
+Verified in the linked ROM: at 00:83AF the loop `LDX #0 / LDA.l
+$00841C,X / STA.l $7F0000,X / INX / INX / CPX #$001B / BCC` copies the 27
+bytes of `glob.data` (00:841C) to `globram.data` (7F:0000), and those ROM
+bytes held the expected values (`cpu_level` 1, `hud_dirty` 1, the board
+seed table...). The game code no longer depends on it anyway: every
+mutable static is set explicitly, and `globram.data` is now empty in all
+three ROMs.
+
+**Where tables go.** A file-scope `static const` one-dimensional array
+goes to ROM (`.rodata`). A two-dimensional one, or a `static const` local
+to a function, goes to `globram.data`, that is RAM filled by the copy
+above. The board seed table is a flat file-scope array for that reason.
+
+**`long` is 16 bits.** 816-tcc gives `sizeof(long) == 2`: `unsigned long
+rng = 0x2545F491UL` keeps only 0xF491, and `xs32()` in `ai.c` is a 16-bit
+generator on the console (the `x >> 17` step is 0). The console's
+`AI_EASY` draws therefore differ from the host simulator's. Nothing else
+in `src/` uses `long`.
+
+**The 7E:8000 limit.** The C `.bss` sections are placed in bank 7E from
+7E:2000 up. PVSnesLib's own RAM sections start at 7E:8000 (e.g.
+`.reg_bkgrd7e` at 7E:9DD1), and wlalink does not report an overlap between
+the two. Every ROM target (`rom`, `rom-script`, `rom-measure`) therefore
+reads the end of the last C `.bss` section from the generated `.symfull`
+and fails with "RAM check FAILED" if it goes past `RAM_LIMIT` (7E:8000 by
+default). Today the C statics end at 7E:6916 (`rom`), 7E:691A
+(`rom-script`) and 7E:6926 (`rom-measure`): about 5.8 KB left, of which
+`ai.c` uses about 10 KB of the 18.7 KB taken. `make rom RAM_LIMIT=007e6000`
+shows the failure.
