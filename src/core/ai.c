@@ -667,8 +667,10 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
         int pick, i, cost = step_cost(j);
 
         /* La première étape se fait toujours ; les suivantes seulement si
-           elles tiennent dans ce qui reste du budget. */
-        if (spent > 0 && spent + cost > budget) {
+           elles tiennent dans ce qui reste du budget (écrit sans somme :
+           spent + cost dépasserait 32 767 avec le budget d'ai_choose() et
+           un `int` de 16 bits). */
+        if (spent > 0 && cost > budget - spent) {
             return FALSE;
         }
         spent += cost;
