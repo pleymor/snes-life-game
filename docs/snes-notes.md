@@ -2,8 +2,8 @@
 
 Task 0 output. Records the exact, verified calls tasks 7-12 need. Everything
 under "Verified end-to-end" was actually built, run in an emulator, and
-confirmed on a captured screenshot (see `.superpowers/sdd/2026-09-14-immigration/task-0-report.md`
-for the image). Everything under "Header-verified, not exercised here" is
+confirmed on a captured screenshot at the time (not archived in this repo).
+Everything under "Header-verified, not exercised here" is
 copied verbatim from the shipped PVSnesLib headers/examples but was not
 itself run by this spike's `src/snes/main.c` — the first task that calls it
 for real should treat it as unverified until it sees it work.
@@ -135,22 +135,21 @@ human at a screen. Prefer this over the GUI Snes9x install for anything that
 needs to run unattended (CI, agent-driven verification); keep Snes9x around
 only for a human to sanity-check something interactively.
 
-**Foreground launches can hang forever and ignore `SIGALRM` (task 10, three
-agents lost to this)**: running the RetroArch command above directly in the
-foreground, even wrapped in a shell-level timeout (`perl -e 'alarm N; exec
-...'` or equivalent), is not safe — RetroArch sometimes sits past the alarm
-without ever receiving it, and the wrapping call then blocks forever, taking
-down whatever launched it. Always launch RetroArch in the **background**
-and poll for it from the outside instead of trusting any in-process alarm:
-start the process with `&`, remember its PID (`$!`), poll `kill -0 $pid`
-once a second up to a hard limit, and `kill -9 $pid` if it is still alive
-past that limit. This is exactly what `.superpowers/sdd/*/cap.sh` does
-(`ROM FRAMES OUT LIMIT_S`, prints `frames=N rc=0 <bytes>` on success or
-`frames=N HUNG (killed after ${LIM}s)` on timeout) — the script itself is a
-workspace tool, not part of this repo, but the pattern (background launch +
-external poll + `SIGKILL` watchdog, never a foreground wait) is the
-reusable lesson: it is the only reliable way found so far to bound a
-RetroArch headless capture from an agent or a CI job.
+**Foreground launches can hang forever and ignore `SIGALRM` (task 10:
+several runs hung on this)**: running the RetroArch command above directly
+in the foreground, even wrapped in a shell-level timeout (`perl -e 'alarm
+N; exec ...'` or equivalent), is not safe — RetroArch sometimes sits past
+the alarm without ever receiving it, and the wrapping call then blocks
+forever, taking down whatever launched it. Always launch RetroArch in the
+**background** and poll for it from the outside instead of trusting any
+in-process alarm: start the process with `&`, remember its PID (`$!`),
+poll `kill -0 $pid` once a second up to a hard limit, and `kill -9 $pid` if
+it is still alive past that limit — printing something like `frames=N
+rc=0 <bytes>` on success or `frames=N HUNG (killed after LIMITs)` on
+timeout is enough to tell the two cases apart automatically. This
+background-launch + external-poll + `SIGKILL`-watchdog pattern (never a
+foreground wait) is the reusable lesson: it is the only reliable way found
+so far to bound a RetroArch headless capture from an automated job.
 
 ## 3. Produces — the exact, verified PVSnesLib API
 
@@ -369,8 +368,8 @@ Verified end-to-end: `make rom` from a fully clean tree (no `data/*`,
 `data/tiles.bmp` from `tools/mktiles.py`, converts it, assembles, links,
 and produces `build/life.sfc` in one pass with zero compiler/assembler/
 linker warnings; a RetroArch headless screenshot (recipe in section 2)
-shows the loaded tiles and palette rendering correctly — see
-`.superpowers/sdd/2026-09-14-immigration/task-8-report.md`.
+shows the loaded tiles and palette rendering correctly (verified during
+that task, screenshot not archived in this repo).
 
 ### Writing a tilemap to VRAM by DMA (the task 7 mechanism)
 
@@ -677,9 +676,9 @@ flag (`src/snes/render.c`), refreshed only at startup and whenever
 the per-frame blink itself only toggles one cached tile value between its
 stored color and `TILE_EMPTY` — no board walk. After this fix, `--max-frames`
 pairs exactly 16 apart reliably land on opposite blink phases (confirmed at
-`600`/`616`, `1000`/`1016`, `2000`/`2016`, all three pairs opposite — see
-`.superpowers/sdd/2026-09-14-immigration/task-9-report.md`'s "Fix round 1"
-section for the actual screenshots/pixel readings). **Consequence for later
+`600`/`616`, `1000`/`1016`, `2000`/`2016`, all three pairs opposite, by the
+actual screenshots/pixel readings captured during that fix, not archived
+in this repo). **Consequence for later
 tasks**: per-frame render-preparation functions must stay O(1) (or at least
 comfortably sub-frame) — anything that re-walks the board or does
 comparable work every single frame, gated by nothing, is a lag-frame risk
@@ -706,10 +705,10 @@ VRAM/OAM contents (nothing has been DMA'd yet) for as many raw frames as
 the computation takes, and the screen visibly "jumps" to the new state
 all at once once `render_vblank()`'s DMA finally runs.
 
-Measured (task 10 verification, `.superpowers/sdd/2026-09-14-immigration/
-task-10-report.md`) by bisecting `WS/cap.sh` captures around a single
-`SELECT` toggle (off = cheap, occupancy-only scan; back on = expensive,
-with `rules_in_range`) at a fixed cursor position, using the range-dot
+Measured (task 10 verification) by bisecting headless captures (background
+RetroArch launch, `--max-frames` swept and polled from the outside per §2)
+around a single `SELECT` toggle (off = cheap, occupancy-only scan; back on
+= expensive, with `rules_in_range`) at a fixed cursor position, using the range-dot
 pixel count as the visible signal: the cheap (no-range) rebuild costs
 roughly ~20 raw frames; the expensive (range-shown) rebuild costs roughly
 **~350 raw frames**, cross-checked against an independent transition (the
@@ -750,9 +749,9 @@ test` both stay pristine; `make rom` and `make rom-script` build clean
 worked around by hoisting the wrapped coordinates into named `int`
 locals before indexing).
 
-Re-measured with the same method as above (bisecting `WS/cap.sh`
-captures around the `SELECT` toggle, range-dot pixel count as the
-signal), on `build/life-script.sfc`:
+Re-measured with the same method as above (bisecting headless captures
+around the `SELECT` toggle, range-dot pixel count as the signal), on
+`build/life-script.sfc`:
 
 - **before**: the toggle-on (expensive) rebuild cost **~350 raw frames**
   (~5.8 s).
@@ -764,11 +763,9 @@ signal), on `build/life-script.sfc`:
   the mask-based rebuild itself. Cross-checked against the first
   placement's own (also mask-based) rebuild: predicted to land around raw
   854 (804 + 8-call gap + ~42), observed at raw 856 — matches within a
-  couple of frames. Screenshots: `task10-perf-off-before-753.png` /
-  `task10-perf-off-complete-754.png` (off transition), `task10-perf-on-
-  before-803.png` / `task10-perf-on-complete-804.png` (on transition),
-  `task10-perf-place1-before-850.png` / `task10-perf-place1-complete-
-  856.png` (cross-check), all under `WS/` only.
+  couple of frames. Screenshots captured for this measurement (off/on
+  transition and the placement cross-check) are not archived in this
+  repo.
 - That is roughly an **8× reduction** (~350 → ~42 raw frames), turning a
   ~5.8 s total-visual-freeze per placement/undo/turn-switch into ~0.7 s.
   Still not sub-frame — a mask recompute still touches every one of the
@@ -776,3 +773,83 @@ signal), on `build/life-script.sfc`:
   tests each one against every neighbour — but it is proportional to the
   board's cell count once, not to cell count × neighbourhood size, and it
   no longer dominates the frame budget by two orders of magnitude.
+
+### Fix round 1 — row-pointer indexing, and the mask cached once per turn
+
+A follow-up review, compiling `board.c`/`view.c`/`rules.c` with 816-tcc
+directly, pinned the remaining ~42-frame cost on two things:
+
+1. **The multiply per `Board` access.** `board_get()`'s `c[y + 1][x + 1]`
+   indexing (and the equivalent direct indexing in `board_count()` and
+   `rules_range_mask()`'s scan) multiplies by `BSTRIDE` (34) on every
+   single access — 34 is not a power of two, so 816-tcc emits a real
+   `jsr.l` to a multiply routine, not a shift. A range-shown rebuild was 5
+   full passes of the 768-cell board (the mask scan, `view_board()`'s own
+   classification pass, `render_board_now()`'s tilemap copy, and
+   `view_hud()`'s two separate `board_count()` calls), and this multiply
+   dominated every one of them.
+2. **The mask was being recomputed on every rebuild, not once per turn.**
+   `rules_range_mask()` depends only on the turn's board snapshot and the
+   current player, both fixed for the whole turn by `begin_turn()`
+   (`src/core/match.c`) — yet `view_board()` was calling it again on
+   *every* placement, undo, and `SELECT` toggle within that same turn.
+
+Fix, all in `src/core/`: `board_count()`, `rules_range_mask()`'s scan,
+`view_board()`, and `render_board_now()`'s tilemap copy (`src/snes/
+render.c`) all hoist a row pointer out of their inner loop (one multiply
+per row, none per cell, no `board_get()` call per cell) — e.g. `const u8
+*row = &b->c[y + 1][1];` then `row[x]`. `Match` (`src/core/match.h`) gains
+a `u8 range_mask[BOARD_H][BOARD_W]` field, computed once by `begin_turn()`
+right where the range snapshot itself is taken; `view_board()`, `ai.c`'s
+`collect()`, and `match_place()` all read `m->range_mask` directly instead
+of calling `rules_in_range()`/`rules_range_mask()` per rebuild. `view_hud()`
+now calls a new `board_count_pair()` (one pass counting both colours)
+instead of two separate `board_count()` calls. `rules_in_range()` and
+`rules_range_mask()` themselves are unchanged in behaviour and still exist
+(`rules_in_range()` for `match_place`'s pre-cache path in tests,
+`rules_range_mask()` for `begin_turn()`'s once-per-turn call).
+
+New equivalence tests (`tests/test_match.c`) assert `m->range_mask` equals
+`rules_in_range()` cell-by-cell after `match_start()`, after a P1→P2 turn
+switch, and after a tick; new pinning tests (`tests/test_board.c`) check
+`board_count()`/the new `board_count_pair()` against an independent,
+`board_get()`-based tally on `board_seed()` and pseudo-random boards
+(in-test xorshift32, not `rand()`). `make test` went from 19761 → 22074
+checks, all passing (see the fix-round-1 report for the exact RED/GREEN
+transcript). `make test` and `PVSNESLIB_HOME=/nonexistent
+make test` both stay pristine; `make rom`/`make rom-script` build clean
+(one more 816-tcc-only quirk: passing `m->range_mask`, read through a
+`const Match *`, straight into a function expecting `const u8
+(*)[BOARD_W]` triggered a spurious "assignment from incompatible pointer
+type" warning that GCC/Clang never raised — worked around with an explicit
+`(const u8 (*)[BOARD_W])` cast at the call site in `ai.c`, no behaviour
+change).
+
+Re-measured the same way (bisecting headless captures around the same
+`SELECT` toggle, range-dot pixel count as the signal), on the rebuilt
+`build/life-script.sfc`:
+
+- toggle-off completes at raw frame **713**; toggle-on completes at raw
+  frame **735** — a total delta of 22 raw frames, of which up to 8 are
+  simply the idle gap between the two scripted key-presses, leaving
+  **~14 raw frames** unaccounted for.
+- Cross-check: the first placement (also an ordinary dirty rebuild, and
+  never a mask recompute either, since placements don't call
+  `begin_turn()`) completes at raw frame **757**, landing the same ~14
+  raw frames past its naive call-index prediction (735 + 8-call gap =
+  743) — the same residual both times.
+- Because `SELECT` no longer triggers *any* mask computation (the mask is
+  only ever computed once, at the turn boundary), toggling range display
+  on and off are now, algorithmically, **the same rebuild** — the ~14-raw-
+  frame residual measured on both the toggle-on and the first-placement
+  transition is therefore best read as the current *range-independent*
+  baseline cost of a dirty rebuild (the row-pointer-hoisted `view_board()`
+  pass, `render_board_now()`'s tilemap copy, and `board_count_pair()`,
+  one pass each), not as a cost specific to showing the range.
+- Net: **~350 → ~42 → ~14 raw frames**, roughly a further 3× reduction on
+  top of the dilation fix (an ~25× reduction from the original defect),
+  turning a ~5.8 s freeze into ~0.23 s. This is close to, but not quite
+  under, the 10-raw-frame target set for this round; the three remaining
+  full-board passes above are the next candidate if a further reduction
+  is ever needed. Screenshots captured for this measurement are not
+  archived in this repo.

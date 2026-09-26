@@ -23,7 +23,7 @@ CFLAGS += -Isrc/core
 # Task 10: `rom-script` builds a second ROM, life-script.sfc, from the same
 # sources but with input.c's INPUT_SCRIPT path compiled in (a fixed replay
 # table instead of padsCurrent(0)) for headless screenshot verification
-# (docs/snes-notes.md §2, WS/task-10-report.md). Its own buildWithSummary
+# (docs/snes-notes.md §2). Its own buildWithSummary
 # recipe re-invokes `make buildActual` exactly like `rom`'s does, so
 # BUILD_ROM_SCRIPT is exported the same way BUILD_ROM is above, and this
 # branch re-evaluates identically in that child process.

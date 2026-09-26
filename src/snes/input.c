@@ -22,10 +22,10 @@ static unsigned short prev;
    plus grand de 45 (RESOLVE_HOLD, main.c) à chaque tour de rouge terminé.
 
    Le détail de chaque étape (quelle vérification du § Step 3 de la tâche
-   elle prouve, la position du curseur qu'elle produit à chaque appel) est
-   documenté dans WS/task-10-report.md, généré et vérifié par simulation
-   avant transcription ici — la table ci-dessous n'est pas devinée à la
-   main. RetroArch affiche son propre bandeau « contenu chargé » pendant les
+   elle prouve, la position du curseur qu'elle produit à chaque appel) a
+   été généré et vérifié par simulation avant transcription ici — la table
+   ci-dessous n'est pas devinée à la main. RetroArch affiche son propre
+   bandeau « contenu chargé » pendant les
    ~300-350 premières images (docs/snes-notes.md § 2) : une capture prise
    avant ne montre rien d'exploitable. La table démarre donc par 400 images
    d'attente (aucune touche), qui ne font que laisser ce bandeau se
@@ -53,8 +53,8 @@ static unsigned short prev;
        largement ROUND_CAP. Chaque GS_RESOLVE (45 images) qui s'ensuit
        retarde d'autant l'image réelle par rapport à la valeur de la table
        (voir le paragraphe ci-dessus) ; l'image réelle exacte de chaque
-       image capturée est celle consignée dans WS/task-10-report.md, pas la
-       valeur brute de la table. */
+       image capturée a été retrouvée par capture/bisection, pas déduite
+       de la valeur brute de la table. */
 typedef struct {
     unsigned int   frame;
     unsigned short pad;
