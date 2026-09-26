@@ -16,6 +16,7 @@ data/*_data.as
 /hdr.asm
 /linkfile
 /life.log
+/life-script.log
 *.symfull
 
 # espaces de travail des outils, jamais versionnés

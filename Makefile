@@ -4,20 +4,40 @@ PVSNESLIB_HOME ?= $(HOME)/pvsneslib
 # shells out to generate hdr.asm) and requires PVSNESLIB_HOME to point at a
 # real install. Task 1-7 targets (test/clean/all, appended below this file)
 # are pure host-side C and must keep working even when PVSnesLib is not
-# installed, so the include only happens when `rom` is the goal. snes_rules'
-# own recipes re-invoke `make` as a child process (e.g. `make buildActual`),
-# so BUILD_ROM is exported to the environment to keep the guard true there too.
-ifneq (,$(filter rom,$(MAKECMDGOALS))$(BUILD_ROM))
+# installed, so the include only happens when `rom`/`rom-script` is the
+# goal. snes_rules' own recipes re-invoke `make` as a child process (e.g.
+# `make buildActual`), so BUILD_ROM (and, for the scripted build,
+# BUILD_ROM_SCRIPT below) is exported to the environment to keep the guard
+# true there too.
+ifneq (,$(filter rom rom-script,$(MAKECMDGOALS))$(BUILD_ROM))
 
 export PVSNESLIB_HOME
 export BUILD_ROM := 1
+
+# src/snes/*.c (main.c, render.c, input.c) #include headers from src/core/
+# by quoted name (e.g. "match.h") without a relative path; snes_rules' own
+# CFLAGS only adds $(CURDIR) (the repo root), so src/core needs its own -I
+# here.
+CFLAGS += -Isrc/core
+
+# Task 10: `rom-script` builds a second ROM, life-script.sfc, from the same
+# sources but with input.c's INPUT_SCRIPT path compiled in (a fixed replay
+# table instead of padsCurrent(0)) for headless screenshot verification
+# (docs/snes-notes.md §2, WS/task-10-report.md). Its own buildWithSummary
+# recipe re-invokes `make buildActual` exactly like `rom`'s does, so
+# BUILD_ROM_SCRIPT is exported the same way BUILD_ROM is above, and this
+# branch re-evaluates identically in that child process.
+ifneq (,$(filter rom-script,$(MAKECMDGOALS))$(BUILD_ROM_SCRIPT))
+export BUILD_ROM_SCRIPT := 1
+export ROMNAME := life-script
+# hdr.asm's NAME directive caps out at 21 letters; "SNES LIFE GAME" (14) has
+# no room left for a "script" suffix.
+export ROMTITLE := LIFE GAME SCRIPT
+CFLAGS += -DINPUT_SCRIPT
+else
 export ROMNAME := life
 export ROMTITLE := SNES LIFE GAME
-
-# src/snes/*.c (main.c, render.c) #include headers from src/core/ by quoted
-# name (e.g. "match.h") without a relative path; snes_rules' own CFLAGS only
-# adds $(CURDIR) (the repo root), so src/core needs its own -I here.
-CFLAGS += -Isrc/core
+endif
 
 GFX4SNES := $(PVSNESLIB_HOME)/devkitsnes/tools/gfx4snes
 
@@ -54,8 +74,33 @@ include $(PVSNESLIB_HOME)/devkitsnes/snes_rules
 src/snes/tiles.obj: data/tiles.pic data/tiles.pal
 src/snes/sprites.obj: data/sprites.pic data/sprites.pal
 
-.PHONY: rom
-rom: buildWithSummary
+# CFLAGS (in particular -DINPUT_SCRIPT above) only takes effect at the
+# .c -> .ps compile step of snes_rules' own pattern rules; the resulting
+# .ps -> .asm -> .obj chain is otherwise ordinary mtime-based make, with no
+# dependency on CFLAGS at all. Switching between `rom` and `rom-script`
+# without touching any source would therefore leave stale intermediates
+# compiled with the *other* target's flags lying around and silently link
+# them into the new ROM. Force every C source through the whole chain again
+# on every `rom`/`rom-script` build so the two never cross-contaminate —
+# this is also what keeps a plain `make rom` byte-identical regardless of
+# whether `rom-script` ran first. Hand-written .asm sources (tiles.asm,
+# sprites.asm — no matching .c file) are left alone: their .obj never
+# depends on CFLAGS.
+SNES_CFILES := $(wildcard src/*.c) $(wildcard src/*/*.c) $(wildcard src/*/*/*.c)
+SNES_C_INTERMEDIATES := $(SNES_CFILES:.c=.obj) $(SNES_CFILES:.c=.asm) $(SNES_CFILES:.c=.ps)
+
+.PHONY: clean-snes-intermediates
+clean-snes-intermediates:
+	rm -f $(SNES_C_INTERMEDIATES)
+
+.PHONY: rom rom-script
+rom: clean-snes-intermediates buildWithSummary
+	mkdir -p build
+	mv $(ROMNAME).sfc build/
+	mv $(ROMNAME).sym build/
+	mv $(ROMNAME).symfull build/
+
+rom-script: clean-snes-intermediates buildWithSummary
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
 	mv $(ROMNAME).sym build/
@@ -65,9 +110,9 @@ buildActual: $(OFILES) $(ROMNAME).sfc
 
 else
 
-.PHONY: rom
-rom:
-	@echo "Run 'make rom' on its own (not combined with other targets)."
+.PHONY: rom rom-script
+rom rom-script:
+	@echo "Run 'make rom' or 'make rom-script' on its own (not combined with other targets)."
 	@exit 1
 
 endif
