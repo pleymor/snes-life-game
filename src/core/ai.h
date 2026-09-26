@@ -53,10 +53,10 @@ typedef struct {
 #define AI_COST_PREP      37   /* une ligne de la copie codée */
 #define AI_COST_COLLECT   21   /* quatre cases ouvertes examinées */
 #define AI_COST_UPDATE    50   /* un tiers de la mise à jour autour de la pose */
-#define AI_COST_SELECT    70   /* une moitié de la sélection des k meilleurs */
+#define AI_COST_SELECT   117   /* une moitié de la sélection des k meilleurs */
 #define AI_COST_GEN_ROW    2   /* une ligne de g1 ou de g2... */
 #define AI_COST_GEN_2COLS  5   /* ... plus ceci par paire de colonnes calculées */
-#define AI_COST_EVAL      37   /* un candidat */
+#define AI_COST_EVAL      75   /* un candidat */
 #define AI_COST_PICK      60   /* la pose du meilleur */
 
 /* Démarre un tour d'IA. Ne lit presque rien : tout le travail se fait

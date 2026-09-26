@@ -56,10 +56,11 @@ static bool_t cpu_thinking;
 /* Budget d'un pas d'ai_step(), dans les unités des AI_COST_... d'ai.h (une
    unité vaut environ un centième de frame, mesuré sur la console,
    docs/snes-notes.md § 9). 90 laisse un dixième de la frame au reste de
-   l'itération (HUD, curseur). Mesuré : 110 frames pour 100 itérations sur
-   un tour du CPU ; une itération sur dix déborde d'une frame, quand une
-   étape coûte plus que prévu (une ligne de g1/g2 large, un candidat
-   entouré de changements). 80 ou 100 donnent un tour plus long. */
+   l'itération (HUD, curseur). Mesuré : 171 frames pour 159 itérations sur
+   le premier tour du CPU du script ; les dépassements viennent des
+   étapes qui coûtent à elles seules plus d'une frame (sélection) ou plus
+   que leur moyenne (un candidat entouré de changements). 100 donne un
+   tour plus long. */
 #define AI_STEP_BUDGET 90
 
 #ifdef AI_MEASURE_FRAMES
