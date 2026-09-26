@@ -18,8 +18,8 @@ static u8 hud[HUD_W];
    taux d'affichage, et render_board_now() (768 cases) prend plus longtemps
    que la fenêtre de VBlank : un DMA déclenché juste après le calcul
    tomberait pendant l'affichage actif. */
-static bool_t board_pending = FALSE;
-static bool_t hud_pending = FALSE;
+static bool_t board_pending;
+static bool_t hud_pending;
 
 /* Fix round 1 : view_hud() balaie deux fois les 768 cases du plateau
    (board_count() pour chaque joueur) rien que pour préparer le bandeau ;
@@ -31,7 +31,7 @@ static bool_t hud_pending = FALSE;
    appelée (dès la tâche 10, partout où board_dirty l'est aussi) ; entre
    deux recalculs, le clignotement ne fait que basculer la seule tuile de
    l'icône du joueur actif entre sa valeur mise en cache et TILE_EMPTY. */
-static bool_t hud_dirty = TRUE;
+static bool_t hud_dirty;
 
 /* Symboles produits par gfx4snes (data/tiles.pic, data/tiles.pal) puis
    assemblés dans la ROM par src/snes/tiles.asm. Orthographe consignée dans
@@ -76,6 +76,19 @@ extern char sprites_pal, sprites_palend;
 
 void render_init(void)
 {
+    int i;
+
+    /* La RAM n'est pas remise à zéro au démarrage (docs/snes-notes.md
+       § 10) : tout l'état de ce module est posé ici. Le bandeau est à
+       reconstruire (hud_dirty), rien n'est en attente de transfert. */
+    for (i = 0; i < 32 * 32; i++) {
+        map_bg1[i] = TILE_EMPTY;
+        map_bg2[i] = TILE_EMPTY;
+    }
+    board_pending = FALSE;
+    hud_pending = FALSE;
+    hud_dirty = TRUE;
+
     /* Séquence exacte consignée dans docs/snes-notes.md à la tâche 0,
        vérifiée à la tâche 8 : chargement du jeu de tuiles et de la
        palette en VRAM (bgInitTileSet), adresse de la tilemap de BG1
@@ -96,9 +109,9 @@ void render_init(void)
     bgSetEnable(1);
     bgSetDisable(2);
 
-    /* map_bg1/map_bg2 sont en mémoire statique (donc mis à zéro = TILE_EMPTY
-       par le C au démarrage), mais la VRAM elle-même ne l'est pas forcément
-       à la mise sous tension (fix round 1, constat de revue) : un transfert
+    /* map_bg1/map_bg2 viennent d'être remplis de TILE_EMPTY, mais la VRAM
+       elle-même ne l'est pas forcément à la mise sous tension (fix round 1,
+       constat de revue) : un transfert
        complet de chaque tilemap ici, pendant le forced blank (setScreenOn()
        n'a pas encore été appelé, l'accès VRAM est donc libre), garantit que
        toute la VRAM des deux tilemaps est à TILE_EMPTY avant que

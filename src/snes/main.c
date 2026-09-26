@@ -37,8 +37,8 @@ static Cursor cur;
 
 /* -1 pour un second joueur humain ; sinon AI_EASY ou AI_NORMAL. Tâche 12 la
    renseigne depuis un menu ; ici elle est fixée en dur (task 11). */
-static int cpu_level = AI_NORMAL;
-static unsigned long rng = 0x2545F491UL;
+static int cpu_level;
+static unsigned long rng;
 
 /* Le tour du CPU est étalé sur plusieurs frames (spec § 6.3) : un pas
    d'ai_step() par itération de la boucle, entre deux WaitForVBlank(), pour
@@ -51,7 +51,7 @@ static unsigned long rng = 0x2545F491UL;
    FALSE : sinon le tour suivant du CPU reprendrait un AiJob périmé au
    lieu d'appeler ai_begin(). */
 static AiJob  job;
-static bool_t cpu_thinking = FALSE;
+static bool_t cpu_thinking;
 
 /* Budget d'un pas d'ai_step(), dans les unités des AI_COST_... d'ai.h (une
    unité vaut environ un centième de frame, mesuré sur la console,
@@ -131,9 +131,19 @@ int main(void)
        otherwise never call before any visible state actually changes. */
     bool_t started = FALSE;
 
+    /* Toutes les variables statiques de ce fichier sont posées ici, sans
+       compter ni sur un initialiseur ni sur une mise à zéro : la RAM de la
+       console n'est pas remise à zéro au démarrage (docs/snes-notes.md
+       § 10). m, cur et job le sont par match_start(), input_init() et
+       ai_begin(). */
+    cpu_level = AI_NORMAL;
+    /* `long` fait 16 bits pour 816-tcc (docs/snes-notes.md § 10) : seuls
+       les 16 bits bas de cette graine comptent sur la console. */
+    rng = 0x2545F491UL;
+    cpu_thinking = FALSE;
 #ifdef AI_MEASURE_FRAMES
-    /* Explicitement : rien ne garantit ici qu'un static sans initialiseur
-       parte de zéro (constaté : 9999 affiché avant le premier tour). */
+    meas_start = 0;
+    meas_iters = 0;
     meas_last_frames = 0;
     meas_last_iters = 0;
     meas_shown_frames = 0;

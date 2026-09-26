@@ -71,21 +71,26 @@ void board_wrap(Board *b)
     memcpy(&b->c[BOARD_H + 1][0], &b->c[1][0], BSTRIDE);
 }
 
+/* Spec § 2.4. Le joueur 2 est l'image du joueur 1 par (x,y) -> (31-x, 23-y).
+   Bloc 2x2 : immortel tant qu'on ne le dérange pas.
+   Planeur : se déplace vers le centre du plateau.
+   Paires (x, y) à plat, en portée fichier : 816-tcc ne place en ROM que
+   les tables `static const` de fichier à une dimension ; une table locale
+   à une fonction ou à deux dimensions part en RAM, recopiée depuis la ROM
+   au démarrage (docs/snes-notes.md § 10). */
+static const u8 seed_p1[2 * 9] = {
+    6, 14,  7, 14,  6, 15,  7, 15,          /* bloc */
+    7,  6,  8,  7,  6,  8,  7,  8,  8,  8   /* planeur */
+};
+
 void board_seed(Board *b)
 {
-    /* Spec § 2.4. Le joueur 2 est l'image du joueur 1 par (x,y) -> (31-x, 23-y).
-       Bloc 2x2 : immortel tant qu'on ne le dérange pas.
-       Planeur : se déplace vers le centre du plateau. */
-    static const u8 p1[9][2] = {
-        { 6, 14 }, { 7, 14 }, { 6, 15 }, { 7, 15 },          /* bloc */
-        { 7,  6 }, { 8,  7 }, { 6,  8 }, { 7,  8 }, { 8, 8 } /* planeur */
-    };
     int i;
 
     board_clear(b);
     for (i = 0; i < 9; i++) {
-        board_set(b, p1[i][0], p1[i][1], CELL_P1);
-        board_set(b, BOARD_W - 1 - p1[i][0], BOARD_H - 1 - p1[i][1], CELL_P2);
+        board_set(b, seed_p1[2 * i], seed_p1[2 * i + 1], CELL_P1);
+        board_set(b, BOARD_W - 1 - seed_p1[2 * i], BOARD_H - 1 - seed_p1[2 * i + 1], CELL_P2);
     }
     board_wrap(b);
 }

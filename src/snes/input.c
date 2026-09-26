@@ -305,8 +305,9 @@ static const ScriptStep script[] = {
 };
 #define SCRIPT_LEN (sizeof(script) / sizeof(script[0]))
 
-static unsigned int script_call = 0;   /* nombre d'appels à input_update() */
-static unsigned int script_index = 0;
+/* Posés par input_init() : la RAM n'est pas remise à zéro au démarrage. */
+static unsigned int script_call;   /* nombre d'appels à input_update() */
+static unsigned int script_index;
 
 static unsigned short script_pad(void)
 {
