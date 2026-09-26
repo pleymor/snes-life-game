@@ -854,66 +854,114 @@ Re-measured the same way (bisecting headless captures around the same
   is ever needed. Screenshots captured for this measurement are not
   archived in this repo.
 
-## 9. Task 11 — a blocking `ai_choose()` call costs ~1900 raw frames (~32 s), not sub-30; made resumable
+## 9. Task 11 — the CPU turn: ~1900 raw frames at first, ~110 now
 
-Task 11 wires the CPU opponent (`ai_choose()`, `src/core/ai.c`) into the game
-loop: `cpu_take_turn()` (`src/snes/main.c`) shows a "thinking" indicator (red
-HUD icon off, cursor hidden — the two-phase render discipline from tasks 9-10
-applies here too: prepare, `WaitForVBlank()`, `render_vblank()`, *then* the
-blocking call, or nothing would ever reach VRAM before the freeze) and calls
-`ai_choose()`. Per the task's own brief, step 3 measures this blocking call's
-real cost before deciding whether to pay the complexity of making it
-resumable (step 4's threshold: 30 raw frames, about half a second).
+### 9.1 The first measurement: ~1900 frames for one blocking `ai_choose()`
 
-**Method**: a temporary build (`-DAI_MEASURE_FRAMES`, never part of any
-committed target) made `cpu_take_turn()` read the free-running
-`snes_vblank_count` (declared in the shipped `snes/console.h`, incremented by
-PVSnesLib's own NMI handler every real VBlank, independently of whatever the
-main loop is doing) immediately before and after the blocking `ai_choose()`
-call, and displayed the delta at the round-number's usual HUD position (task
-11 brief step 3). Verified on `build/life-script.sfc`
-(the scripted-input ROM, docs §2) with `cpu_level = AI_NORMAL`, by bisecting
-headless captures (`cap.sh`, §2's background-launch + external-poll pattern)
-around the moment blue's (P1) scripted turn hands off to the CPU (red):
+Task 11 first wired `ai_choose()` (`src/core/ai.c`) into the game loop as
+one blocking call, preceded by a "thinking" indicator (red HUD icon off,
+cursor hidden). The task brief asked to measure that call before deciding
+whether to make it resumable (threshold: 30 raw frames).
 
-- The screen is byte-identical (frozen: red HUD icon off, cursor hidden,
-  board/HUD unchanged) from raw frame **917** — the frame right after
-  `cpu_take_turn()`'s own preamble commits via its own
-  `WaitForVBlank()`/`render_vblank()`, immediately before the blocking
-  `ai_choose()` call — through raw frame **2822**, all captured and compared.
-- The first visible change (board ticked, HUD unfrozen, red icon back on) is
-  at raw frame **2824** — `ai_choose()` has returned by then (plus the small,
-  already-measured cost of the next dirty rebuild, §8 above, and
-  `match_end_turn()`'s life tick(s)).
-- **End-to-end bisected delta: ~1907 raw frames (2824 − 917), roughly 32 s at
-  60 Hz.** Independently corroborated by the in-ROM counter itself: every
-  capture in the frozen range, once unfrozen, showed the round display
-  saturated at its own clamp of 999 (`view_digits3()` clamps any value past
-  999 for display) — i.e. the exact internal `snes_vblank_count` delta is
-  itself confirmed **>= 999** raw VBlanks, consistent with (necessarily a
-  little under) the ~1907-frame outer bisection.
+**Method**: a build with `AI_MEASURE_FRAMES` read the free-running
+`snes_vblank_count` (declared in `snes/console.h`, incremented by
+PVSnesLib's NMI handler on every real VBlank, whatever the main loop is
+doing) before and after the call. On the scripted-input ROM (§2), with
+`cpu_level = AI_NORMAL`, headless captures were bisected around the moment
+the blue player's scripted turn hands over to the CPU: the screen stayed
+frozen from raw frame 917 to raw frame 2822, and changed at 2824. **About
+1900 raw frames, roughly 32 s**, for a turn of 89 candidate evaluations
+(29 + 29 + 31, from a host replay of the same script).
 
-**~1900 raw frames is roughly 63x the brief's 30-frame threshold** — this is
-not a borderline case. The cost is the expected one for `AI_NORMAL`
-(`AI_MAX_DEPTH = 2`, top-32 candidates re-scored by `ai_eval_local()`, up to
-`BUDGET = 3` placements, each rescoring against the *updated* working board):
-a 9x9 local window loaded and ticked twice, twice (with/without the
-candidate), for up to 32 candidates, up to 3 times per turn, all
-816-tcc-compiled, unoptimized C on a 3.58 MHz 65816 — the same order of
-magnitude as the board-wide passes in §8 above, just repeated far more times
-per turn than once.
+The cost: a 9 x 9 window loaded and ticked twice (with and without the
+candidate), per candidate, per placement, in 816-tcc output on a 65816 that
+runs at about 2.68 MHz effective (SlowROM, 8 master cycles per memory
+access), that is about 44 700 CPU cycles per NTSC frame.
 
-**Decision (brief step 4): > 30 frames — made `ai_choose()` resumable.**
-`src/core/ai.h`/`ai.c` gain the brief's `AiJob`/`ai_begin()`/`ai_step()` split
-(`ai_step()` evaluates a caller-given budget of candidates per call and
-returns `TRUE` once the whole turn is decided; `ai_choose()` becomes a thin
-loop calling `ai_step()` with an effectively infinite per-call budget, so
-every existing task 6 test keeps working unchanged). `src/snes/main.c`'s
-`cpu_take_turn()` is replaced by a per-frame `ai_step(&job, &m, &rng, 4)`
-call (budget 4 candidates/frame) folded into the main loop's own
-prepare/`WaitForVBlank()`/`render_vblank()` cycle, so the HUD (the blinking
-"thinking" icon) keeps animating across the many frames the CPU's move now
-visibly takes, instead of freezing the display for ~32 s. The temporary
-`AI_MEASURE_FRAMES` instrumentation itself was removed after this
-measurement (never part of the committed build). Screenshots captured for
-this measurement are not archived in this repo.
+### 9.2 Fix round 1 — what the time went to, and what was changed
+
+`make rom-measure` (opt-in, never part of `make rom`) builds
+`build/life-measure.sfc`: the scripted input of `rom-script` plus the
+`AI_MEASURE_FRAMES` counters in `src/snes/main.c`. After each CPU turn the
+HUD shows, in place of the round counter, the turn's length in real
+VBlanks (from `ai_begin()` to the `ai_step()` that returns `TRUE`) in
+columns 12-15 and the number of main-loop iterations of that turn in
+columns 16-19. Frames close to iterations mean an iteration fits in a
+frame. The first CPU turn of the script ends before raw frame 1150.
+
+Measured on that turn, step by step (raw frames per CPU turn):
+
+| State | Frames |
+|---|---|
+| Before (blocking call) | ~1900 |
+| Window tick unrolled (life_tick's pointer pattern) and limited to its light cone; window loaded once through wrap tables; candidate collection by row pointer, halo and ring scan | 508 |
+| Second pass recomputes only the placed cell's cone | 425 |
+| Redesign below, first version, iterations not yet fitted to a frame | 247 |
+| Final (below), `AI_STEP_BUDGET` 90 | **110 (100 iterations)** |
+
+The window-based evaluation stayed near three frames per candidate even
+after these changes. An on-console micro-benchmark (60 repetitions each)
+gave: one depth-2 evaluation 2.9 frames, one window load 0.6 frame (about
+300 cycles per cell), one 7 x 7 tick 0.85 frame (about 780 cycles per
+cell). 816-tcc spends around ten instructions per memory access (pointer
+reloaded from the stack, `sep`/`rep` around every byte), so no per-candidate
+simulation of a 9 x 9 window fits in a frame. A coded window with sliding
+column sums gained only 425 -> 415 frames and was not kept.
+
+**The redesign** (`src/core/ai.c`, overview at the top of the file):
+
+- The board without the candidate is the same for every candidate of a
+  placement. Its next two generations and the neighbour sums behind them
+  (g1, s1, g2, s2) are computed once per placement, on the rows and
+  columns within 3 (g1) or 2 (g2) of the retained candidates.
+- Each candidate is then evaluated incrementally: tick 1 "with" on its 9
+  cells from s1; the changes against g1 are added to the s2 sums of their
+  neighbours; tick 2 "with" is computed only on the touched cells and
+  compared with g2. About 0.37 frame per candidate instead of 2.9.
+- The work board is coded (blue 1, red 16): the sum of eight neighbours
+  carries both counts, and the rule is read from two tables built from
+  `LIFE_RULE`.
+- Candidates are searched only among the empty in-range cells listed once
+  per turn; placements 2 and 3 update the candidate list only in the 3 x 3
+  of the previous placement. The pull towards the opponent is separable by
+  rows (4 - max(|dx|, |dy|) = min(4 - |dx|, 4 - |dy|)): one map per turn,
+  seven reads per candidate.
+- `board_wrap()` walks rows by pointer (it multiplied by 34 on every
+  access before).
+
+Choices are unchanged: the pinned-choice test (`tests/test_ai.c`, recorded
+on the original implementation), the full-board equivalence test and the
+step-by-one test guard it; a differential run against the original
+`ai.c` (40 000 `ai_choose()` calls and 480 000 `ai_eval_local()` calls on
+random boards) found no difference.
+
+Work per phase on that turn, measured by running each phase blocking
+(about +-1 frame per block): copy 9, candidate collection 4, list updates
+3, selection 7, generations 18, evaluations 33 — about 77 frames of work.
+
+**Spreading it over frames.** `ai_step()` takes a budget in units of about
+1/100 frame; each step (a board row copied, four open cells examined, a
+third of a list update, half of the selection, a generation row, a
+candidate, a placement) has a measured cost in `src/core/ai.h`. A call
+always does its first step, then only the steps that still fit. Whole-turn
+results: budget 60: 246 frames / 230 iterations; 80: 114 / 105; 90: 110 /
+100; 100: 112 / 92. `AI_STEP_BUDGET` is 90: about one iteration in ten
+runs one frame over. Two captures 16 frames apart during the CPU turn
+(raw frames 940 and 956 on `build/life-script.sfc`, then 972) show the red
+HUD icon on, off, on, with the board unchanged and the cursor hidden.
+
+### 9.3 Measurement pitfalls met on the way
+
+- Timing a step by the change of `snes_vblank_count` around it is biased:
+  a step always starts just after a VBlank, so a step shorter than a frame
+  counts 0. Time whole phases or whole turns instead.
+- Reading the V counter through the latch gave inconsistent values here;
+  it was not used.
+- Redrawing four-digit numbers on the HUD every frame cost about a quarter
+  of a frame (software division by 10). The measurement build redraws them
+  only when they change.
+- Statics without an initializer did not start at zero in this build (the
+  counters showed 9999): initialize them explicitly.
+- Headless captures past about 500 frames hung while the host display was
+  asleep, even for an unchanged ROM. Wake the display and keep it awake
+  (for example `caffeinate -u`) before a long capture.
