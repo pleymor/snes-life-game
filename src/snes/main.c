@@ -1,14 +1,18 @@
 /*---------------------------------------------------------------------------------
 
     Task 0 spike, extended by task 8 (board on BG1), task 9 (HUD on BG2,
-    cursor sprite) and task 10 (controls, two-player game loop).
+    cursor sprite), task 10 (controls, two-player game loop), task 11 (CPU
+    turns) and task 12 (mode menu, result screen): the game now boots to a
+    menu, plays, shows the result, and returns to the menu, forever.
 
     render_init()/render_board_now()/render_hud_now()/render_cursor()
     (src/snes/render.c) own every PVSnesLib call this file used to make
     directly (mode select, tileset + palette load, DMA, OAM) — see
     docs/snes-notes.md for the exact, verified sequence. input_init()/
-    input_update() (src/snes/input.c) own the pad. This file only drives the
-    game loop.
+    input_update()/input_reset() (src/snes/input.c) own the pad.
+    screen_menu()/screen_result() (src/snes/screens.c) own the mode menu and
+    result screen. This file only drives the game loop itself, bracketed
+    by those two screens in an outer, never-exiting loop.
 
     VBlank discipline: render_board_now()/render_hud_now()/render_cursor()
     only prepare buffers; render_vblank() (called after WaitForVBlank(),
@@ -23,6 +27,7 @@
 #include "match.h"
 #include "render.h"
 #include "input.h"
+#include "screens.h"
 #include "ai.h"
 
 typedef enum { GS_TURN, GS_RESOLVE, GS_OVER } GameState;
@@ -35,8 +40,8 @@ typedef enum { GS_TURN, GS_RESOLVE, GS_OVER } GameState;
 static Match  m;
 static Cursor cur;
 
-/* -1 pour un second joueur humain ; sinon AI_EASY ou AI_NORMAL. Tâche 12 la
-   renseigne depuis un menu ; ici elle est fixée en dur (task 11). */
+/* -1 pour un second joueur humain ; sinon AI_EASY ou AI_NORMAL. Renseignée
+   par screen_menu() (src/snes/screens.c) à chaque retour au menu. */
 static int cpu_level;
 static Rng rng;
 
@@ -120,129 +125,164 @@ static bool_t snapshot_differs(const Snapshot *a, const Snapshot *b)
 //---------------------------------------------------------------------------------
 int main(void)
 {
-    GameState state = GS_TURN;
-    /* unsigned : a plain (signed) `int` would overflow undefined behaviour
-       past 32767 on the 16-bit `int` of the 65816 target (fix round 1,
-       task 8 review finding — carried over here). */
-    unsigned int frame = 0;
-    int hold = 0;
-    /* Forces the very first frame to be seen as "changed": render.c's own
-       map_bg1 buffer starts at TILE_EMPTY and is only ever filled by
-       render_board_now(), which the snapshot comparison below would
-       otherwise never call before any visible state actually changes. */
-    bool_t started = FALSE;
-
-    /* Toutes les variables statiques de ce fichier sont posées ici, sans
-       compter ni sur un initialiseur ni sur une mise à zéro : la RAM de la
-       console n'est pas remise à zéro au démarrage (docs/snes-notes.md
-       § 10). m, cur et job le sont par match_start(), input_init() et
-       ai_begin(). */
-    cpu_level = AI_NORMAL;
-    /* Graine 0x2545F491, en deux moitiés : `long` ne fait que 16 bits sur
-       la console (docs/snes-notes.md § 10). */
-    rng_seed(&rng, 0x2545U, 0xF491U);
-    cpu_thinking = FALSE;
-#ifdef AI_MEASURE_FRAMES
-    meas_start = 0;
-    meas_iters = 0;
-    meas_last_frames = 0;
-    meas_last_iters = 0;
-    meas_shown_frames = 0;
-    meas_shown_iters = 0;
-#endif
+    /* Initialisations valables pour tout le programme, faites une seule
+       fois avant le tout premier écran de menu : render_init() pose l'état
+       de render.c (VRAM, mode graphique), input_reset() celui de la
+       lecture de manette (et, sous INPUT_SCRIPT, la position dans la table
+       de rejeu) — voir input.h. Ni l'une ni l'autre ne doivent être
+       répétées à chaque partie : render_init() reprogrammerait le PPU en
+       vain, et input_reset() rembobinerait le rejeu scripté au lieu de le
+       laisser traverser menu -> partie -> écran de fin -> menu suivant
+       comme une seule chronologie continue. */
     render_init();
-    match_start(&m);
-    input_init(&cur);
+    input_reset();
 
     for (;;) {
-        Snapshot before, after;
-        bool_t ticked = FALSE;
-        bool_t dirty;
+        GameState state = GS_TURN;
+        /* unsigned : a plain (signed) `int` would overflow undefined
+           behaviour past 32767 on the 16-bit `int` of the 65816 target
+           (fix round 1, task 8 review finding — carried over here). */
+        unsigned int frame = 0;
+        int hold = 0;
+        /* Forces the very first frame of every game to be seen as
+           "changed": render.c's own map_bg1/map_bg2 buffers still hold
+           whatever screen_menu()/screen_result() last put there, which the
+           snapshot comparison below would otherwise never call
+           render_board_now()/render_hud_dirty() to replace before some
+           visible match state actually changes (task 12 ruling: no
+           leftover from the previous game). `state`, `frame` and `hold`
+           above are automatic locals re-initialised by this same
+           declaration every time this outer loop runs, for the same
+           reason. */
+        bool_t started = FALSE;
 
-        snapshot_take(&before, state);
+        /* cpu_level, m, cur et job (via cpu_thinking) sont remis à neuf à
+           chaque partie, explicitement : la RAM de la console n'est pas
+           remise à zéro au démarrage (docs/snes-notes.md § 10), et rien
+           ici ne doit garder l'état de la partie précédente. */
+        cpu_level = screen_menu();
+        /* Graine 0x2545F491, en deux moitiés : `long` ne fait que 16 bits
+           sur la console (docs/snes-notes.md § 10). Reposée à chaque
+           partie : une IA facile déterministe et reproductible d'une
+           partie à l'autre, pas seulement à l'intérieur d'une partie. */
+        rng_seed(&rng, 0x2545U, 0xF491U);
+        cpu_thinking = FALSE;
+#ifdef AI_MEASURE_FRAMES
+        meas_start = 0;
+        meas_iters = 0;
+        meas_last_frames = 0;
+        meas_last_iters = 0;
+        meas_shown_frames = 0;
+        meas_shown_iters = 0;
+#endif
+        match_start(&m);
+        input_init(&cur);
+        /* Le bandeau (map_bg2) garde le contenu de l'écran précédent
+           (menu ou fin de partie précédente) : forcer sa reconstruction
+           dès la première image de la nouvelle partie plutôt que de
+           compter implicitement sur `started` ci-dessus. */
+        render_hud_dirty();
 
-        if (state == GS_TURN) {
-            if (cpu_level >= 0 && m.turn == CELL_P2) {
-                if (!cpu_thinking) {
+        while (state != GS_OVER) {
+            Snapshot before, after;
+            bool_t ticked = FALSE;
+            bool_t dirty;
+
+            snapshot_take(&before, state);
+
+            if (state == GS_TURN) {
+                if (cpu_level >= 0 && m.turn == CELL_P2) {
+                    if (!cpu_thinking) {
 #ifdef AI_MEASURE_FRAMES
-                    meas_start = snes_vblank_count;
-                    meas_iters = 0;
+                        meas_start = snes_vblank_count;
+                        meas_iters = 0;
 #endif
-                    ai_begin(&job, &m, (AiLevel)cpu_level);
-                    cpu_thinking = TRUE;
-                }
-#ifdef AI_MEASURE_FRAMES
-                meas_iters++;
-#endif
-                /* Un pas par itération, budget borné (AI_STEP_BUDGET) : le
-                   HUD continue de s'animer pendant que le CPU réfléchit. */
-                if (ai_step(&job, &m, &rng, AI_STEP_BUDGET)) {
-                    int i;
-#ifdef AI_MEASURE_FRAMES
-                    meas_last_frames = (unsigned int)(u16)(snes_vblank_count - meas_start);
-                    meas_last_iters = meas_iters;
-#endif
-                    for (i = 0; i < job.made; i++) {
-                        match_place(&m, (int)job.out[i].x, (int)job.out[i].y);
+                        ai_begin(&job, &m, (AiLevel)cpu_level);
+                        cpu_thinking = TRUE;
                     }
-                    cpu_thinking = FALSE;
-                    ticked = TRUE;
+#ifdef AI_MEASURE_FRAMES
+                    meas_iters++;
+#endif
+                    /* Un pas par itération, budget borné (AI_STEP_BUDGET) :
+                       le HUD continue de s'animer pendant que le CPU
+                       réfléchit. */
+                    if (ai_step(&job, &m, &rng, AI_STEP_BUDGET)) {
+                        int i;
+#ifdef AI_MEASURE_FRAMES
+                        meas_last_frames = (unsigned int)(u16)(snes_vblank_count - meas_start);
+                        meas_last_iters = meas_iters;
+#endif
+                        for (i = 0; i < job.made; i++) {
+                            match_place(&m, (int)job.out[i].x, (int)job.out[i].y);
+                        }
+                        cpu_thinking = FALSE;
+                        ticked = TRUE;
+                        match_end_turn(&m);
+                        if (match_winner(&m) != WINNER_NONE) {
+                            state = GS_OVER;
+                        } else {
+                            state = GS_RESOLVE;
+                            hold = RESOLVE_HOLD;
+                        }
+                    }
+                } else if (input_update(&cur, &m)) {
+                    /* Un tick n'a lieu qu'à la fin du tour du second
+                       joueur. */
+                    ticked = (bool_t)(m.turn == CELL_P2);
                     match_end_turn(&m);
                     if (match_winner(&m) != WINNER_NONE) {
                         state = GS_OVER;
-                    } else {
+                    } else if (ticked) {
                         state = GS_RESOLVE;
                         hold = RESOLVE_HOLD;
                     }
                 }
-            } else if (input_update(&cur, &m)) {
-                /* Un tick n'a lieu qu'à la fin du tour du second joueur. */
-                ticked = (bool_t)(m.turn == CELL_P2);
-                match_end_turn(&m);
-                if (match_winner(&m) != WINNER_NONE) {
-                    state = GS_OVER;
-                } else if (ticked) {
-                    state = GS_RESOLVE;
-                    hold = RESOLVE_HOLD;
-                }
+            } else if (state == GS_RESOLVE) {
+                if (--hold <= 0) state = GS_TURN;
             }
-        } else if (state == GS_RESOLVE) {
-            if (--hold <= 0) state = GS_TURN;
-        }
 
-        snapshot_take(&after, state);
-        dirty = (bool_t)(!started || snapshot_differs(&before, &after));
-        started = TRUE;
+            snapshot_take(&after, state);
+            dirty = (bool_t)(!started || snapshot_differs(&before, &after));
+            started = TRUE;
 
-        /* Range marks show only during GS_TURN, and only when the cursor's
-           own toggle asks for them; both conditions are already part of
-           `dirty` above (via `state` and `show_range`), so a change in
-           either always reaches render_board_now() with the right value. */
-        if (dirty) {
-            render_board_now(&m, (bool_t)(state == GS_TURN && cur.show_range));
-            render_hud_dirty();
-        }
-        render_hud_now(&m, (bool_t)((frame & 16) != 0));
+            /* Range marks show only during GS_TURN, and only when the
+               cursor's own toggle asks for them; both conditions are
+               already part of `dirty` above (via `state` and
+               `show_range`), so a change in either always reaches
+               render_board_now() with the right value. */
+            if (dirty) {
+                render_board_now(&m, (bool_t)(state == GS_TURN && cur.show_range));
+                render_hud_dirty();
+            }
+            render_hud_now(&m, (bool_t)((frame & 16) != 0));
 #ifdef AI_MEASURE_FRAMES
-        /* Seulement quand le bandeau vient d'être reconstruit (il efface
-           ces chiffres) ou qu'une valeur a changé : les divisions par 10
-           coûtent cher sur la console et fausseraient la mesure. */
-        if (dirty || meas_last_frames != meas_shown_frames ||
-            meas_last_iters != meas_shown_iters) {
-            render_hud_number4(12, meas_last_frames);
-            render_hud_number4(16, meas_last_iters);
-            meas_shown_frames = meas_last_frames;
-            meas_shown_iters = meas_last_iters;
-        }
+            /* Seulement quand le bandeau vient d'être reconstruit (il
+               efface ces chiffres) ou qu'une valeur a changé : les
+               divisions par 10 coûtent cher sur la console et
+               fausseraient la mesure. */
+            if (dirty || meas_last_frames != meas_shown_frames ||
+                meas_last_iters != meas_shown_iters) {
+                render_hud_number4(12, meas_last_frames);
+                render_hud_number4(16, meas_last_iters);
+                meas_shown_frames = meas_last_frames;
+                meas_shown_iters = meas_last_iters;
+            }
 #endif
-        /* Curseur masqué pendant que le CPU réfléchit (task 11) : sa
-           position resterait celle du dernier tour humain, sans rapport
-           avec le tour du CPU en cours. */
-        render_cursor(cur.x, cur.y, (bool_t)(state == GS_TURN && !cpu_thinking));
+            /* Curseur masqué pendant que le CPU réfléchit (task 11) : sa
+               position resterait celle du dernier tour humain, sans
+               rapport avec le tour du CPU en cours. */
+            render_cursor(cur.x, cur.y, (bool_t)(state == GS_TURN && !cpu_thinking));
 
-        frame++;
-        WaitForVBlank();
-        render_vblank();
+            frame++;
+            WaitForVBlank();
+            render_vblank();
+        }
+
+        /* Partie terminée (state == GS_OVER) : plateau final déjà à
+           l'écran depuis la dernière image de la boucle ci-dessus.
+           screen_result() prend le relais jusqu'à START, puis ce for(;;)
+           reboucle sur un nouveau screen_menu(). */
+        screen_result(&m);
     }
     return 0;
 }

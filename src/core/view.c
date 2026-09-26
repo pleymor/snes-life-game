@@ -78,3 +78,38 @@ void view_hud(const Match *m, u8 out[HUD_W])
         out[21] = (u8)(TILE_DIGIT0 + ticks);
     }
 }
+
+void view_menu(int selected, u8 out[BOARD_H][BOARD_W])
+{
+    static const u8 rows[3] = { 10, 12, 14 };
+    int x, y, i;
+
+    for (y = 0; y < BOARD_H; y++) {
+        for (x = 0; x < BOARD_W; x++) {
+            out[y][x] = TILE_EMPTY;
+        }
+    }
+    for (i = 0; i < 3; i++) {
+        u8 r = rows[i];
+        out[r][10] = (u8)((i == selected) ? TILE_PIP_ON : TILE_EMPTY);
+        out[r][12] = (u8)(TILE_DIGIT0 + (i == 0 ? 2 : 1));
+        out[r][13] = TILE_P;
+        if (i > 0) {
+            out[r][14] = TILE_TIMES;
+            out[r][15] = (u8)(TILE_DIGIT0 + i);   /* 1 facile, 2 normal */
+        }
+    }
+}
+
+void view_result_banner(Winner w, u8 out[HUD_W])
+{
+    int i;
+    for (i = 0; i < HUD_W; i++) {
+        out[i] = TILE_EMPTY;
+    }
+    for (i = 12; i < 20; i++) {
+        if (w == WINNER_P1)      out[i] = TILE_P1;
+        else if (w == WINNER_P2) out[i] = TILE_P2;
+        else                     out[i] = (u8)((i & 1) ? TILE_P2 : TILE_P1);
+    }
+}

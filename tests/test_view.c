@@ -101,6 +101,43 @@ static void test_le_marqueur_demballement_napparait_qua_partir_du_round_16(void)
     T_EQ(hud[21], TILE_DIGIT0 + TICKS_AFTER_RAMPUP);
 }
 
+static void test_le_menu_affiche_les_trois_modes(void)
+{
+    view_menu(0, grid);
+    T_EQ(grid[10][12], TILE_DIGIT0 + 2);   /* 2P */
+    T_EQ(grid[10][13], TILE_P);
+    T_EQ(grid[12][12], TILE_DIGIT0 + 1);   /* 1P x1 */
+    T_EQ(grid[12][13], TILE_P);
+    T_EQ(grid[12][14], TILE_TIMES);
+    T_EQ(grid[12][15], TILE_DIGIT0 + 1);
+    T_EQ(grid[14][15], TILE_DIGIT0 + 2);   /* 1P x2 */
+    T_EQ(grid[0][0], TILE_EMPTY);
+}
+
+static void test_le_menu_marque_la_ligne_choisie(void)
+{
+    view_menu(0, grid);
+    T_EQ(grid[10][10], TILE_PIP_ON);
+    T_EQ(grid[12][10], TILE_EMPTY);
+    view_menu(2, grid);
+    T_EQ(grid[10][10], TILE_EMPTY);
+    T_EQ(grid[14][10], TILE_PIP_ON);
+}
+
+static void test_le_bandeau_de_fin_montre_le_vainqueur(void)
+{
+    view_result_banner(WINNER_P1, hud);
+    T_EQ(hud[12], TILE_P1);
+    T_EQ(hud[19], TILE_P1);
+    T_EQ(hud[0], TILE_EMPTY);
+    view_result_banner(WINNER_P2, hud);
+    T_EQ(hud[12], TILE_P2);
+    /* Un nul alterne les deux couleurs. */
+    view_result_banner(WINNER_DRAW, hud);
+    T_EQ(hud[12], TILE_P1);
+    T_EQ(hud[13], TILE_P2);
+}
+
 void suite_view(void)
 {
     T_RUN(test_les_cellules_prennent_la_tuile_de_leur_couleur);
@@ -111,4 +148,7 @@ void suite_view(void)
     T_RUN(test_le_bandeau_montre_populations_round_et_pastilles);
     T_RUN(test_les_poses_restantes_se_vident);
     T_RUN(test_le_marqueur_demballement_napparait_qua_partir_du_round_16);
+    T_RUN(test_le_menu_affiche_les_trois_modes);
+    T_RUN(test_le_menu_marque_la_ligne_choisie);
+    T_RUN(test_le_bandeau_de_fin_montre_le_vainqueur);
 }

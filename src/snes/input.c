@@ -8,53 +8,82 @@ static unsigned short prev;
 
 #ifdef INPUT_SCRIPT
 /* Rejeu scripté pour la vérification headless (docs/snes-notes.md §2) :
-   remplace padsCurrent(0) par la relecture d'une table figée de (frame,
-   masque de touches). Rien de ce bloc ne compile dans la ROM par défaut :
-   CFLAGS ne reçoit -DINPUT_SCRIPT que pour la cible `rom-script` du
-   Makefile racine ; `make rom` ignore entièrement ce bloc.
+   remplace padsCurrent(0) par la relecture d'une table figée de (indice
+   d'appel, masque de touches). Rien de ce bloc ne compile dans la ROM par
+   défaut : CFLAGS ne reçoit -DINPUT_SCRIPT que pour la cible `rom-script`
+   du Makefile racine ; `make rom` ignore entièrement ce bloc.
 
    Chaque entrée tient son masque jusqu'à l'entrée suivante — une fonction
-   en escalier de l'indice d'appel de input_update(). Cet indice n'avance
-   que pendant GS_TURN (main.c n'appelle input_update() que dans cet état),
-   donc les pauses GS_RESOLVE ne consomment aucune entrée de la table : le
-   nombre réel de frames PPU écoulées entre deux entrées de la table est
-   toujours au moins égal à la différence de leurs `frame`, mais peut être
-   plus grand de 45 (RESOLVE_HOLD, main.c) à chaque tour de rouge terminé.
+   en escalier de l'indice d'appel de input_edges() (le nombre d'appels
+   déjà effectués, `script_call`). Depuis la tâche 12, cet indice n'est
+   plus propre à une partie : screen_menu() et screen_result()
+   (src/snes/screens.c) appellent input_edges() elles aussi, au même
+   rythme qu'input_update() (une fois par itération de leur boucle, donc
+   une fois par frame), avant même qu'une partie n'existe et après qu'elle
+   se termine. La table ci-dessous est donc une seule chronologie continue
+   qui traverse menu -> partie -> écran de fin -> menu suivant -> partie
+   suivante, jamais rembobinée (input_reset(), pas input_init(), la pose
+   une seule fois — voir main.c).
 
-   Le détail de chaque étape (quelle vérification du § Step 3 de la tâche
-   elle prouve, la position du curseur qu'elle produit à chaque appel) a
-   été généré et vérifié par simulation avant transcription ici — la table
-   ci-dessous n'est pas devinée à la main. RetroArch affiche son propre
-   bandeau « contenu chargé » pendant les
+   L'indice n'avance que lorsqu'input_edges() est réellement appelée :
+   pendant GS_RESOLVE (main.c) et pendant que le CPU réfléchit (tour de
+   l'IA, aucun input humain lu ce tour-là), aucun appel n'a lieu et
+   l'indice reste bloqué à sa valeur, alors que des images réelles
+   continuent de s'écouler.
+
+   Même pendant le menu, l'écran de fin et le tour humain — où un appel a
+   lieu à chaque image, sans aucune pause de ce genre — l'indice de la
+   table ne vaut *pas* l'image réelle : chaque case, pose ou tour qui
+   change l'état visible (sélection du menu, tour, round...) redéclenche
+   un rafraîchissement de tuiles (`render_board_from_grid()`/
+   `render_hud_now()`) dont le calcul, sur ce CPU, prend lui-même plusieurs
+   dizaines à plusieurs centaines d'images réelles avant d'atteindre le
+   `WaitForVBlank()` de cette même itération (docs/snes-notes.md § 8 :
+   c'est le même phénomène qui rendait le rafraîchissement du plateau si
+   coûteux). Un même écart d'indices entre deux entrées de la table peut
+   donc correspondre à des durées réelles très différentes selon que
+   l'action franchie déclenche ou non un tel rafraîchissement. La
+   correspondance exacte indice -> image réelle n'est donc pas déduite
+   d'une formule : chaque image citée dans les captures du rapport de
+   tâche 12 a été retrouvée par capture/bisection directe sur la ROM
+   scriptée, pas calculée à l'avance. Pour limiter l'effet sur la
+   navigation du menu (la partie la plus sensible : ses états
+   intermédiaires ne durent que le temps d'un rafraîchissement), chaque
+   appui y est précédé d'une pause large et volontairement généreuse (150
+   appels sans touche, eux-mêmes bon marché car sans rafraîchissement) :
+   l'état qui suit chaque appui reste donc affiché largement assez
+   longtemps pour être capturé sans viser une image précise.
+
+   RetroArch affiche son propre bandeau « contenu chargé » pendant les
    ~300-350 premières images (docs/snes-notes.md § 2) : une capture prise
-   avant ne montre rien d'exploitable. La table démarre donc par 400 images
-   d'attente (aucune touche), qui ne font que laisser ce bandeau se
-   dissiper ; toute la suite est décalée d'autant par rapport à une
-   première version sans cette attente. Résumé (valeurs de la table, égales
-   à l'image réelle tant qu'aucun tick n'a eu lieu, c'est-à-dire jusqu'à
-   l'étape 8 incluse) :
-     - frames  400- 616 : étape 1 (déplacement), un pas simple puis un
-       maintien sur chacun des quatre bords (sort et réapparaît de l'autre
-       côté) ;
-     - frame       623  : A sur une case vide hors de portée (loin de toute
-       figure) : refusé, rien ne se pose ;
-     - frames  632- 666 : navigation fine (pas simples) jusqu'à (5,13), à
-       distance de Chebyshev 1 du bloc bleu (6,14)-(7,15) ;
-     - frames  674- 682 : étape 2, SELECT éteint puis rallume les points de
-       portée ;
-     - frames  690- 762 : étapes 3 à 6, trois poses (dont une reprise après
-       une annulation), une pose refusée sur case déjà occupée, une pose
-       refusée par le budget une fois les trois utilisées ;
-     - frame       774  : étape 7, START passe au rouge ;
-     - frame       786  : étape 8, START de nouveau (rouge ne pose rien) :
-       le tick a lieu immédiatement ;
-     - frames  797-1689 : étapes 9 et 10, fin de partie jouée au pas de
-       course (aucune pose, chaque tour clos par START) jusqu'à dépasser
-       largement ROUND_CAP. Chaque GS_RESOLVE (45 images) qui s'ensuit
-       retarde d'autant l'image réelle par rapport à la valeur de la table
-       (voir le paragraphe ci-dessus) ; l'image réelle exacte de chaque
-       image capturée a été retrouvée par capture/bisection, pas déduite
-       de la valeur brute de la table. */
+   avant ne montre rien d'exploitable. La table démarre donc par 400
+   images d'attente (aucune touche).
+
+   Résumé (indices de la table, pas des images réelles — voir ci-dessus) :
+     - indice      400  : un appui haut, sans effet (le disque est déjà sur
+       la première ligne, `2P`) ;
+     - jusqu'à l'indice ~858 : trois appuis bas espacés (les deux premiers
+       déplacent le disque vers `1P×1` puis `1P×2`, le troisième est
+       absorbé : la brief interdit de sortir des trois lignes) ;
+     - jusqu'à l'indice ~1314 : trois appuis haut espacés (les deux
+       premiers ramènent vers `1P×1` puis `2P`, le troisième absorbé) ;
+     - indice ~1466 : A sur `2P` (`selected == 0`) : lance une partie à
+       deux ;
+     - jusqu'à l'indice ~1786 : partie 1 jouée au pas de course (aucune
+       pose, chaque tour clos par START) sur ses 40 rounds — sans pose, la
+       partie va jusqu'au plafond ROUND_CAP et se termine par un nul
+       (vérifié par simulation hôte : voir tools/sim.c pour le mécanisme,
+       la partie sans pose y donne WINNER_DRAW au round 40) ;
+     - indice ~1788 : START, retour au menu (le bandeau de fin, qui
+       clignote toutes les 30 images réelles dans screen_result(), est
+       capturé à la fois affiché et éteint pour prouver le clignotement) ;
+     - jusqu'à l'indice ~2244 : deux appuis bas (`1P×1` puis `1P×2`), puis
+       A : lance une seconde partie, contre le CPU niveau normal —
+       plateau de départ intact, aucun reste de la partie précédente ;
+     - indice ~2396 : START, bleu (P1, humain) passe son tour sans rien
+       poser ; le tour suivant est celui du rouge (P2), entièrement piloté
+       par l'IA — aucune touche de la table ne le concerne, la partie 2
+       n'a pas besoin d'aller à son terme pour le montrer. */
 typedef struct {
     unsigned int   frame;
     unsigned short pad;
@@ -62,251 +91,206 @@ typedef struct {
 
 static const ScriptStep script[] = {
     {     0, 0 },
-    {   400, KEY_RIGHT },
+    {   400, KEY_UP },
     {   401, 0 },
-    {   405, KEY_RIGHT },
-    {   485, 0 },
-    {   490, KEY_UP },
-    {   554, 0 },
-    {   559, KEY_DOWN },
-    {   583, 0 },
-    {   588, KEY_LEFT },
-    {   616, 0 },
-    {   623, KEY_A },
-    {   624, 0 },
-    {   632, KEY_RIGHT },
-    {   633, 0 },
-    {   634, KEY_RIGHT },
-    {   635, 0 },
-    {   636, KEY_RIGHT },
-    {   637, 0 },
-    {   638, KEY_RIGHT },
-    {   639, 0 },
-    {   640, KEY_RIGHT },
-    {   641, 0 },
-    {   642, KEY_RIGHT },
-    {   643, 0 },
-    {   644, KEY_RIGHT },
-    {   645, 0 },
-    {   646, KEY_DOWN },
-    {   647, 0 },
-    {   648, KEY_DOWN },
-    {   649, 0 },
-    {   650, KEY_DOWN },
-    {   651, 0 },
-    {   652, KEY_DOWN },
-    {   653, 0 },
-    {   654, KEY_DOWN },
-    {   655, 0 },
-    {   656, KEY_DOWN },
-    {   657, 0 },
-    {   658, KEY_DOWN },
-    {   659, 0 },
-    {   660, KEY_DOWN },
-    {   661, 0 },
-    {   662, KEY_DOWN },
-    {   663, 0 },
-    {   664, KEY_DOWN },
-    {   665, 0 },
-    {   666, KEY_DOWN },
-    {   667, 0 },
-    {   674, KEY_SELECT },
-    {   675, 0 },
-    {   682, KEY_SELECT },
-    {   683, 0 },
-    {   690, KEY_A },
-    {   691, 0 },
-    {   698, KEY_A },
-    {   699, 0 },
-    {   706, KEY_RIGHT },
-    {   707, 0 },
-    {   714, KEY_A },
-    {   715, 0 },
-    {   722, KEY_B },
-    {   723, 0 },
-    {   730, KEY_A },
-    {   731, 0 },
-    {   738, KEY_RIGHT },
-    {   739, 0 },
-    {   746, KEY_A },
-    {   747, 0 },
-    {   754, KEY_RIGHT },
-    {   755, 0 },
-    {   762, KEY_A },
-    {   763, 0 },
-    {   774, KEY_START },
-    {   775, 0 },
-    {   786, KEY_START },
-    {   787, 0 },
-    {   797, KEY_START },
-    {   798, 0 },
-    {   808, KEY_START },
-    {   809, 0 },
-    {   819, KEY_START },
-    {   820, 0 },
-    {   830, KEY_START },
-    {   831, 0 },
-    {   841, KEY_START },
-    {   842, 0 },
-    {   852, KEY_START },
-    {   853, 0 },
-    {   863, KEY_START },
-    {   864, 0 },
-    {   874, KEY_START },
-    {   875, 0 },
-    {   885, KEY_START },
-    {   886, 0 },
-    {   896, KEY_START },
-    {   897, 0 },
-    {   907, KEY_START },
-    {   908, 0 },
-    {   918, KEY_START },
-    {   919, 0 },
-    {   929, KEY_START },
-    {   930, 0 },
-    {   940, KEY_START },
-    {   941, 0 },
-    {   951, KEY_START },
-    {   952, 0 },
-    {   962, KEY_START },
-    {   963, 0 },
-    {   973, KEY_START },
-    {   974, 0 },
-    {   984, KEY_START },
-    {   985, 0 },
-    {   995, KEY_START },
-    {   996, 0 },
-    {  1006, KEY_START },
-    {  1007, 0 },
-    {  1017, KEY_START },
-    {  1018, 0 },
-    {  1028, KEY_START },
-    {  1029, 0 },
-    {  1039, KEY_START },
-    {  1040, 0 },
-    {  1050, KEY_START },
-    {  1051, 0 },
-    {  1061, KEY_START },
-    {  1062, 0 },
-    {  1072, KEY_START },
-    {  1073, 0 },
-    {  1083, KEY_START },
-    {  1084, 0 },
-    {  1094, KEY_START },
-    {  1095, 0 },
-    {  1105, KEY_START },
-    {  1106, 0 },
-    {  1116, KEY_START },
-    {  1117, 0 },
-    {  1127, KEY_START },
-    {  1128, 0 },
-    {  1138, KEY_START },
-    {  1139, 0 },
-    {  1149, KEY_START },
-    {  1150, 0 },
-    {  1160, KEY_START },
+    {   552, KEY_DOWN },
+    {   553, 0 },
+    {   704, KEY_DOWN },
+    {   705, 0 },
+    {   856, KEY_DOWN },
+    {   857, 0 },
+    {  1008, KEY_UP },
+    {  1009, 0 },
+    {  1160, KEY_UP },
     {  1161, 0 },
-    {  1171, KEY_START },
-    {  1172, 0 },
-    {  1182, KEY_START },
-    {  1183, 0 },
-    {  1193, KEY_START },
-    {  1194, 0 },
-    {  1204, KEY_START },
-    {  1205, 0 },
-    {  1215, KEY_START },
-    {  1216, 0 },
-    {  1226, KEY_START },
-    {  1227, 0 },
-    {  1237, KEY_START },
-    {  1238, 0 },
-    {  1248, KEY_START },
-    {  1249, 0 },
-    {  1259, KEY_START },
-    {  1260, 0 },
-    {  1270, KEY_START },
-    {  1271, 0 },
-    {  1281, KEY_START },
-    {  1282, 0 },
-    {  1292, KEY_START },
-    {  1293, 0 },
-    {  1303, KEY_START },
-    {  1304, 0 },
-    {  1314, KEY_START },
-    {  1315, 0 },
-    {  1325, KEY_START },
-    {  1326, 0 },
-    {  1336, KEY_START },
-    {  1337, 0 },
-    {  1347, KEY_START },
-    {  1348, 0 },
-    {  1358, KEY_START },
-    {  1359, 0 },
-    {  1369, KEY_START },
-    {  1370, 0 },
-    {  1380, KEY_START },
-    {  1381, 0 },
-    {  1391, KEY_START },
-    {  1392, 0 },
-    {  1402, KEY_START },
-    {  1403, 0 },
-    {  1413, KEY_START },
-    {  1414, 0 },
-    {  1424, KEY_START },
-    {  1425, 0 },
-    {  1435, KEY_START },
-    {  1436, 0 },
-    {  1446, KEY_START },
-    {  1447, 0 },
-    {  1457, KEY_START },
-    {  1458, 0 },
-    {  1468, KEY_START },
-    {  1469, 0 },
-    {  1479, KEY_START },
-    {  1480, 0 },
-    {  1490, KEY_START },
-    {  1491, 0 },
-    {  1501, KEY_START },
-    {  1502, 0 },
+    {  1312, KEY_UP },
+    {  1313, 0 },
+    {  1464, KEY_A },
+    {  1465, 0 },
+    {  1470, KEY_START },
+    {  1471, 0 },
+    {  1472, KEY_START },
+    {  1473, 0 },
+    {  1478, KEY_START },
+    {  1479, 0 },
+    {  1480, KEY_START },
+    {  1481, 0 },
+    {  1486, KEY_START },
+    {  1487, 0 },
+    {  1488, KEY_START },
+    {  1489, 0 },
+    {  1494, KEY_START },
+    {  1495, 0 },
+    {  1496, KEY_START },
+    {  1497, 0 },
+    {  1502, KEY_START },
+    {  1503, 0 },
+    {  1504, KEY_START },
+    {  1505, 0 },
+    {  1510, KEY_START },
+    {  1511, 0 },
     {  1512, KEY_START },
     {  1513, 0 },
-    {  1523, KEY_START },
-    {  1524, 0 },
+    {  1518, KEY_START },
+    {  1519, 0 },
+    {  1520, KEY_START },
+    {  1521, 0 },
+    {  1526, KEY_START },
+    {  1527, 0 },
+    {  1528, KEY_START },
+    {  1529, 0 },
     {  1534, KEY_START },
     {  1535, 0 },
-    {  1545, KEY_START },
-    {  1546, 0 },
-    {  1556, KEY_START },
-    {  1557, 0 },
-    {  1567, KEY_START },
-    {  1568, 0 },
-    {  1578, KEY_START },
-    {  1579, 0 },
-    {  1589, KEY_START },
-    {  1590, 0 },
+    {  1536, KEY_START },
+    {  1537, 0 },
+    {  1542, KEY_START },
+    {  1543, 0 },
+    {  1544, KEY_START },
+    {  1545, 0 },
+    {  1550, KEY_START },
+    {  1551, 0 },
+    {  1552, KEY_START },
+    {  1553, 0 },
+    {  1558, KEY_START },
+    {  1559, 0 },
+    {  1560, KEY_START },
+    {  1561, 0 },
+    {  1566, KEY_START },
+    {  1567, 0 },
+    {  1568, KEY_START },
+    {  1569, 0 },
+    {  1574, KEY_START },
+    {  1575, 0 },
+    {  1576, KEY_START },
+    {  1577, 0 },
+    {  1582, KEY_START },
+    {  1583, 0 },
+    {  1584, KEY_START },
+    {  1585, 0 },
+    {  1590, KEY_START },
+    {  1591, 0 },
+    {  1592, KEY_START },
+    {  1593, 0 },
+    {  1598, KEY_START },
+    {  1599, 0 },
     {  1600, KEY_START },
     {  1601, 0 },
-    {  1611, KEY_START },
-    {  1612, 0 },
+    {  1606, KEY_START },
+    {  1607, 0 },
+    {  1608, KEY_START },
+    {  1609, 0 },
+    {  1614, KEY_START },
+    {  1615, 0 },
+    {  1616, KEY_START },
+    {  1617, 0 },
     {  1622, KEY_START },
     {  1623, 0 },
-    {  1633, KEY_START },
-    {  1634, 0 },
-    {  1644, KEY_START },
-    {  1645, 0 },
-    {  1655, KEY_START },
-    {  1656, 0 },
-    {  1666, KEY_START },
-    {  1667, 0 },
-    {  1677, KEY_START },
-    {  1678, 0 },
+    {  1624, KEY_START },
+    {  1625, 0 },
+    {  1630, KEY_START },
+    {  1631, 0 },
+    {  1632, KEY_START },
+    {  1633, 0 },
+    {  1638, KEY_START },
+    {  1639, 0 },
+    {  1640, KEY_START },
+    {  1641, 0 },
+    {  1646, KEY_START },
+    {  1647, 0 },
+    {  1648, KEY_START },
+    {  1649, 0 },
+    {  1654, KEY_START },
+    {  1655, 0 },
+    {  1656, KEY_START },
+    {  1657, 0 },
+    {  1662, KEY_START },
+    {  1663, 0 },
+    {  1664, KEY_START },
+    {  1665, 0 },
+    {  1670, KEY_START },
+    {  1671, 0 },
+    {  1672, KEY_START },
+    {  1673, 0 },
+    {  1678, KEY_START },
+    {  1679, 0 },
+    {  1680, KEY_START },
+    {  1681, 0 },
+    {  1686, KEY_START },
+    {  1687, 0 },
     {  1688, KEY_START },
-    {  1689, 0 }
+    {  1689, 0 },
+    {  1694, KEY_START },
+    {  1695, 0 },
+    {  1696, KEY_START },
+    {  1697, 0 },
+    {  1702, KEY_START },
+    {  1703, 0 },
+    {  1704, KEY_START },
+    {  1705, 0 },
+    {  1710, KEY_START },
+    {  1711, 0 },
+    {  1712, KEY_START },
+    {  1713, 0 },
+    {  1718, KEY_START },
+    {  1719, 0 },
+    {  1720, KEY_START },
+    {  1721, 0 },
+    {  1726, KEY_START },
+    {  1727, 0 },
+    {  1728, KEY_START },
+    {  1729, 0 },
+    {  1734, KEY_START },
+    {  1735, 0 },
+    {  1736, KEY_START },
+    {  1737, 0 },
+    {  1742, KEY_START },
+    {  1743, 0 },
+    {  1744, KEY_START },
+    {  1745, 0 },
+    {  1750, KEY_START },
+    {  1751, 0 },
+    {  1752, KEY_START },
+    {  1753, 0 },
+    {  1758, KEY_START },
+    {  1759, 0 },
+    {  1760, KEY_START },
+    {  1761, 0 },
+    {  1766, KEY_START },
+    {  1767, 0 },
+    {  1768, KEY_START },
+    {  1769, 0 },
+    {  1774, KEY_START },
+    {  1775, 0 },
+    {  1776, KEY_START },
+    {  1777, 0 },
+    {  1782, KEY_START },
+    {  1783, 0 },
+    {  1784, KEY_START },
+    {  1785, 0 },
+    {  2036, KEY_START },
+    {  2037, 0 },
+    {  2188, KEY_DOWN },
+    {  2189, 0 },
+    {  2340, KEY_DOWN },
+    {  2341, 0 },
+    {  2492, KEY_A },
+    {  2493, 0 },
+    {  2644, KEY_START },
+    {  2645, 0 },
 };
+
 #define SCRIPT_LEN (sizeof(script) / sizeof(script[0]))
 
-/* Posés par input_init() : la RAM n'est pas remise à zéro au démarrage. */
-static unsigned int script_call;   /* nombre d'appels à input_update() */
+/* Posés par input_reset() : la RAM n'est pas remise à zéro au démarrage.
+   `script_call` n'est plus propre au tour de jeu (task 12) : les écrans de
+   menu et de fin de partie (screens.c) appellent input_edges() eux aussi,
+   au même rythme (une fois par itération de leur boucle, donc une fois par
+   frame), avant même qu'une partie n'existe. Toute la table ci-dessus est
+   donc une seule chronologie continue d'appels à input_edges(), qui
+   traverse menu -> partie -> écran de fin -> menu suivant -> partie
+   suivante, jamais rembobinée : input_reset() ne s'exécute qu'une fois, au
+   tout début de main(), avant le premier screen_menu(). */
+static unsigned int script_call;   /* nombre d'appels à input_edges() */
 static unsigned int script_index;
 
 static unsigned short script_pad(void)
@@ -320,17 +304,34 @@ static unsigned short script_pad(void)
 }
 #endif
 
+void input_reset(void)
+{
+    prev = 0;
+#ifdef INPUT_SCRIPT
+    script_call = 0;
+    script_index = 0;
+#endif
+}
+
+unsigned short input_edges(unsigned short *pad_out)
+{
+#ifdef INPUT_SCRIPT
+    unsigned short pad = script_pad();
+#else
+    unsigned short pad = padsCurrent(0);
+#endif
+    unsigned short hit = (unsigned short)(pad & ~prev);
+    prev = pad;
+    if (pad_out != (unsigned short *)0) *pad_out = pad;
+    return hit;
+}
+
 void input_init(Cursor *c)
 {
     c->x = BOARD_W / 2;
     c->y = BOARD_H / 2;
     c->show_range = TRUE;
     c->repeat = 0;
-    prev = 0;
-#ifdef INPUT_SCRIPT
-    script_call = 0;
-    script_index = 0;
-#endif
 }
 
 /* Le curseur circule sur le tore, comme le plateau. */
@@ -342,14 +343,9 @@ static void move(Cursor *c, int dx, int dy)
 
 bool_t input_update(Cursor *c, Match *m)
 {
-#ifdef INPUT_SCRIPT
-    unsigned short pad = script_pad();
-#else
-    unsigned short pad = padsCurrent(0);
-#endif
-    unsigned short hit = (unsigned short)(pad & ~prev);
+    unsigned short pad;
+    unsigned short hit = input_edges(&pad);
     int dx = 0, dy = 0;
-    prev = pad;
 
     if (pad & KEY_LEFT)  dx = -1;
     if (pad & KEY_RIGHT) dx =  1;

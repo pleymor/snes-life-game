@@ -135,18 +135,17 @@ void render_init(void)
     setScreenOn();
 }
 
-void render_board_now(const Match *m, bool_t show_range)
+void render_board_from_grid(u8 grid_in[BOARD_H][BOARD_W])
 {
     int x, y;
-    view_board(m, show_range, grid);
     /* Pointeurs de ligne hoistés hors de la boucle sur x (fix round 1,
-       perf review) : map_bg1 et grid sont tous deux de largeur 32 (une
+       perf review) : map_bg1 et grid_in sont tous deux de largeur 32 (une
        puissance de deux, donc déjà un simple décalage plutôt qu'une vraie
        multiplication), mais hoister évite de refaire ce calcul d'adresse
        à chaque case plutôt qu'une fois par ligne. */
     for (y = 0; y < BOARD_H; y++) {
         unsigned short *dst = &map_bg1[y << 5];
-        const u8 *src = grid[y];
+        const u8 *src = grid_in[y];
         for (x = 0; x < BOARD_W; x++) {
             dst[x] = (unsigned short)src[x];
         }
@@ -154,9 +153,24 @@ void render_board_now(const Match *m, bool_t show_range)
     board_pending = TRUE;
 }
 
+void render_board_now(const Match *m, bool_t show_range)
+{
+    view_board(m, show_range, grid);
+    render_board_from_grid(grid);
+}
+
 void render_hud_dirty(void)
 {
     hud_dirty = TRUE;
+}
+
+void render_hud_from_row(const u8 row[HUD_W])
+{
+    int i;
+    for (i = 0; i < HUD_W; i++) {
+        map_bg2[HUD_ROW * 32 + i] = (unsigned short)row[i];
+    }
+    hud_pending = TRUE;
 }
 
 void render_hud_now(const Match *m, bool_t blink_on)
@@ -167,11 +181,8 @@ void render_hud_now(const Match *m, bool_t blink_on)
         /* Chemin coûteux (deux balayages de 768 cases dans view_hud()) :
            seulement au démarrage, puis chaque fois que render_hud_dirty()
            a été appelée depuis le dernier appel. */
-        int i;
         view_hud(m, hud);
-        for (i = 0; i < HUD_W; i++) {
-            map_bg2[HUD_ROW * 32 + i] = (unsigned short)hud[i];
-        }
+        render_hud_from_row(hud);
         hud_dirty = FALSE;
     }
 

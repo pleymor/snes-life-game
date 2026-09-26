@@ -2,6 +2,7 @@
 #define RENDER_H
 
 #include "match.h"
+#include "view.h"   /* HUD_W */
 
 void render_init(void);
 
@@ -12,6 +13,22 @@ void render_init(void);
    déclenché depuis cette fonction tomberait pendant l'affichage actif et
    produirait un déchirement visible. */
 void render_board_now(const Match *m, bool_t show_range);
+
+/* Prépare la tilemap de BG1 à partir d'une grille déjà construite (tâche
+   12 : menu, plateau final de l'écran de fin), au lieu de la construire
+   elle-même via view_board() comme le fait render_board_now() ci-dessus.
+   screens.c doit passer par cette fonction plutôt que de toucher la VRAM
+   directement : elle construit sa grille avec view_menu()/view_board(),
+   puis la remet à ce module. Même discipline VBlank et même copie ligne
+   par ligne que render_board_now() (qui s'appuie d'ailleurs dessus) : ne
+   fait que préparer map_bg1 et lever board_pending.
+
+   Pas de `const` sur `grid` malgré une lecture seule : 816-tcc rend
+   « assignment from incompatible pointer type » pour l'ajout d'un `const`
+   sur un paramètre tableau à deux dimensions (u8[][BOARD_W]), avertissement
+   absent sur un tableau à une dimension (voir render_hud_from_row()
+   ci-dessous, dont le paramètre est bien `const`). */
+void render_board_from_grid(u8 grid[BOARD_H][BOARD_W]);
 
 /* Prépare la ligne de bandeau de BG2 pour le prochain render_vblank().
    Deux chemins internes, pour un coût constant par frame (fix round 1,
@@ -26,6 +43,17 @@ void render_board_now(const Match *m, bool_t show_range);
    marché même si rien d'autre que `blink_on` n'a changé — ce que fait
    main.c. */
 void render_hud_now(const Match *m, bool_t blink_on);
+
+/* Prépare la ligne de bandeau de BG2 à partir d'une rangée déjà construite
+   (tâche 12 : bandeau de fin de partie, ligne vide du menu), au lieu de la
+   construire elle-même via view_hud() comme le fait render_hud_now()
+   ci-dessus (qui s'appuie d'ailleurs dessus pour son propre chemin
+   coûteux). Même discipline VBlank : ne fait que préparer map_bg2 et lever
+   hud_pending. Ne touche pas au clignotement bon marché de l'icône de
+   render_hud_now() (propre au bandeau de jeu) : l'écran de fin fait
+   clignoter tout son bandeau lui-même, en rappelant cette fonction tour à
+   tour avec la ligne du bandeau puis une ligne vide. */
+void render_hud_from_row(const u8 row[HUD_W]);
 
 /* Marque le bandeau à reconstruire : le prochain render_hud_now() rappelle
    view_hud() au lieu de se contenter du clignotement bon marché. À appeler
