@@ -174,6 +174,20 @@ void render_hud_now(const Match *m, bool_t blink_on)
     hud_pending = TRUE;
 }
 
+#ifdef AI_MEASURE_FRAMES
+void render_hud_number4(int at, unsigned int value)
+{
+    unsigned short *out = &map_bg2[HUD_ROW * 32 + at];
+    int i;
+    if (value > 9999) value = 9999;
+    for (i = 3; i >= 0; i--) {
+        out[i] = (unsigned short)(TILE_DIGIT0 + value % 10);
+        value /= 10;
+    }
+    hud_pending = TRUE;
+}
+#endif
+
 void render_cursor(int x, int y, bool_t visible)
 {
     /* oamSet() positionne toujours le sprite avant qu'oamSetEx() ne décide

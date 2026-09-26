@@ -4,12 +4,12 @@ PVSNESLIB_HOME ?= $(HOME)/pvsneslib
 # shells out to generate hdr.asm) and requires PVSNESLIB_HOME to point at a
 # real install. Task 1-7 targets (test/clean/all, appended below this file)
 # are pure host-side C and must keep working even when PVSnesLib is not
-# installed, so the include only happens when `rom`/`rom-script` is the
-# goal. snes_rules' own recipes re-invoke `make` as a child process (e.g.
-# `make buildActual`), so BUILD_ROM (and, for the scripted build,
-# BUILD_ROM_SCRIPT below) is exported to the environment to keep the guard
-# true there too.
-ifneq (,$(filter rom rom-script,$(MAKECMDGOALS))$(BUILD_ROM))
+# installed, so the include only happens when `rom`/`rom-script`/
+# `rom-measure` is the goal. snes_rules' own recipes re-invoke `make` as a
+# child process (e.g. `make buildActual`), so BUILD_ROM (and, for the
+# scripted and measurement builds, BUILD_ROM_SCRIPT/BUILD_ROM_MEASURE below)
+# is exported to the environment to keep the guard true there too.
+ifneq (,$(filter rom rom-script rom-measure,$(MAKECMDGOALS))$(BUILD_ROM))
 
 export PVSNESLIB_HOME
 export BUILD_ROM := 1
@@ -27,7 +27,16 @@ CFLAGS += -Isrc/core
 # recipe re-invokes `make buildActual` exactly like `rom`'s does, so
 # BUILD_ROM_SCRIPT is exported the same way BUILD_ROM is above, and this
 # branch re-evaluates identically in that child process.
-ifneq (,$(filter rom-script,$(MAKECMDGOALS))$(BUILD_ROM_SCRIPT))
+# `rom-measure` builds a third ROM, life-measure.sfc: the scripted input
+# above plus main.c's AI_MEASURE_FRAMES counters, which show the frames and
+# loop iterations of the last CPU turn in place of the round counter
+# (docs/snes-notes.md §9). Opt-in only: `make rom` never defines it.
+ifneq (,$(filter rom-measure,$(MAKECMDGOALS))$(BUILD_ROM_MEASURE))
+export BUILD_ROM_MEASURE := 1
+export ROMNAME := life-measure
+export ROMTITLE := LIFE GAME MEASURE
+CFLAGS += -DINPUT_SCRIPT -DAI_MEASURE_FRAMES
+else ifneq (,$(filter rom-script,$(MAKECMDGOALS))$(BUILD_ROM_SCRIPT))
 export BUILD_ROM_SCRIPT := 1
 export ROMNAME := life-script
 # hdr.asm's NAME directive caps out at 21 letters; "SNES LIFE GAME" (14) has
@@ -81,7 +90,8 @@ src/snes/sprites.obj: data/sprites.pic data/sprites.pal
 # without touching any source would therefore leave stale intermediates
 # compiled with the *other* target's flags lying around and silently link
 # them into the new ROM. Force every C source through the whole chain again
-# on every `rom`/`rom-script` build so the two never cross-contaminate —
+# on every `rom`/`rom-script`/`rom-measure` build so they never
+# cross-contaminate —
 # this is also what keeps a plain `make rom` byte-identical regardless of
 # whether `rom-script` ran first. Hand-written .asm sources (tiles.asm,
 # sprites.asm — no matching .c file) are left alone: their .obj never
@@ -93,7 +103,7 @@ SNES_C_INTERMEDIATES := $(SNES_CFILES:.c=.obj) $(SNES_CFILES:.c=.asm) $(SNES_CFI
 clean-snes-intermediates:
 	rm -f $(SNES_C_INTERMEDIATES)
 
-.PHONY: rom rom-script
+.PHONY: rom rom-script rom-measure
 rom: clean-snes-intermediates buildWithSummary
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
@@ -106,13 +116,19 @@ rom-script: clean-snes-intermediates buildWithSummary
 	mv $(ROMNAME).sym build/
 	mv $(ROMNAME).symfull build/
 
+rom-measure: clean-snes-intermediates buildWithSummary
+	mkdir -p build
+	mv $(ROMNAME).sfc build/
+	mv $(ROMNAME).sym build/
+	mv $(ROMNAME).symfull build/
+
 buildActual: $(OFILES) $(ROMNAME).sfc
 
 else
 
-.PHONY: rom rom-script
-rom rom-script:
-	@echo "Run 'make rom' or 'make rom-script' on its own (not combined with other targets)."
+.PHONY: rom rom-script rom-measure
+rom rom-script rom-measure:
+	@echo "Run 'make rom', 'make rom-script' or 'make rom-measure' on its own (not combined with other targets)."
 	@exit 1
 
 endif

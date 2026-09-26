@@ -56,6 +56,21 @@ static bool_t cpu_thinking = FALSE;
    de frames déraisonnable. */
 #define AI_STEP_BUDGET 4
 
+#ifdef AI_MEASURE_FRAMES
+/* Build de mesure seulement (`make rom-measure`, jamais `make rom`) : durée
+   du dernier tour du CPU, de ai_begin() jusqu'au ai_step() qui rend TRUE,
+   en VBlanks réels (snes_vblank_count, incrémenté par le gestionnaire NMI
+   de PVSnesLib quoi que fasse la boucle), et nombre d'itérations de la
+   boucle pendant ce tour. Les deux s'affichent sur quatre chiffres à la
+   place du compteur de rounds « R001/040 » : frames en colonnes 12-15,
+   itérations en colonnes 16-19. Des frames égales aux itérations à peu de
+   chose près montrent qu'une itération tient dans une frame. */
+static u16          meas_start;
+static unsigned int meas_iters;
+static unsigned int meas_last_frames;
+static unsigned int meas_last_iters;
+#endif
+
 /* The small piece of visible state that decides whether the board/HUD need
    rebuilding this frame (task 10 ruling): m.turn, m.round, m.placed,
    m.winner, cur.show_range, and the game state itself (GS_RESOLVE hides the
@@ -108,6 +123,12 @@ int main(void)
        otherwise never call before any visible state actually changes. */
     bool_t started = FALSE;
 
+#ifdef AI_MEASURE_FRAMES
+    /* Explicitement : rien ne garantit ici qu'un static sans initialiseur
+       parte de zéro (constaté : 9999 affiché avant le premier tour). */
+    meas_last_frames = 0;
+    meas_last_iters = 0;
+#endif
     render_init();
     match_start(&m);
     input_init(&cur);
@@ -122,15 +143,26 @@ int main(void)
         if (state == GS_TURN) {
             if (cpu_level >= 0 && m.turn == CELL_P2) {
                 if (!cpu_thinking) {
+#ifdef AI_MEASURE_FRAMES
+                    meas_start = snes_vblank_count;
+                    meas_iters = 0;
+#endif
                     ai_begin(&job, &m, (AiLevel)cpu_level);
                     cpu_thinking = TRUE;
                 }
+#ifdef AI_MEASURE_FRAMES
+                meas_iters++;
+#endif
                 /* Un pas par frame, budget borné : le HUD (bandeau, pastille
                    clignotante) continue de s'animer normalement pendant que
                    le CPU réfléchit, la boucle ne bloque jamais plus d'une
                    frame (task 11 étape 4, docs/snes-notes.md § 9). */
                 if (ai_step(&job, &m, &rng, AI_STEP_BUDGET)) {
                     int i;
+#ifdef AI_MEASURE_FRAMES
+                    meas_last_frames = (unsigned int)(u16)(snes_vblank_count - meas_start);
+                    meas_last_iters = meas_iters;
+#endif
                     for (i = 0; i < job.made; i++) {
                         match_place(&m, (int)job.out[i].x, (int)job.out[i].y);
                     }
@@ -172,6 +204,10 @@ int main(void)
             render_hud_dirty();
         }
         render_hud_now(&m, (bool_t)((frame & 16) != 0));
+#ifdef AI_MEASURE_FRAMES
+        render_hud_number4(12, meas_last_frames);
+        render_hud_number4(16, meas_last_iters);
+#endif
         /* Curseur masqué pendant que le CPU réfléchit (task 11) : sa
            position resterait celle du dernier tour humain, sans rapport
            avec le tour du CPU en cours. */

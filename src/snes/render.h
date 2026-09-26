@@ -50,4 +50,13 @@ void render_cursor(int x, int y, bool_t visible);
    en VRAM ; l'appeler en dehors du VBlank corromprait l'affichage. */
 void render_vblank(void);
 
+#ifdef AI_MEASURE_FRAMES
+/* Build de mesure seulement (`make rom-measure`) : écrit `value` sur quatre
+   chiffres (plafonné à 9999) dans la ligne de bandeau, à partir de la
+   colonne `at`, par-dessus ce que render_hud_now() y a mis. À rappeler à
+   chaque frame après render_hud_now(), dont une reconstruction effacerait
+   sinon ces chiffres. */
+void render_hud_number4(int at, unsigned int value);
+#endif
+
 #endif
