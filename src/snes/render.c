@@ -126,9 +126,16 @@ void render_board_now(const Match *m, bool_t show_range)
 {
     int x, y;
     view_board(m, show_range, grid);
+    /* Pointeurs de ligne hoistés hors de la boucle sur x (fix round 1,
+       perf review) : map_bg1 et grid sont tous deux de largeur 32 (une
+       puissance de deux, donc déjà un simple décalage plutôt qu'une vraie
+       multiplication), mais hoister évite de refaire ce calcul d'adresse
+       à chaque case plutôt qu'une fois par ligne. */
     for (y = 0; y < BOARD_H; y++) {
+        unsigned short *dst = &map_bg1[y << 5];
+        const u8 *src = grid[y];
         for (x = 0; x < BOARD_W; x++) {
-            map_bg1[y * 32 + x] = (unsigned short)grid[y][x];
+            dst[x] = (unsigned short)src[x];
         }
     }
     board_pending = TRUE;
