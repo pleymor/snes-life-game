@@ -40,21 +40,27 @@ static Cursor cur;
 static int cpu_level = AI_NORMAL;
 static unsigned long rng = 0x2545F491UL;
 
-/* Task 11 étape 3 : un ai_choose() bloquant mesuré en jeu réel coûte
-   environ 1900 frames (docs/snes-notes.md § 9), très au-delà du seuil de 30
-   frames fixé par la tâche — étalé ci-dessous sur plusieurs frames au lieu
-   d'un unique appel bloquant. `job` et `cpu_thinking` survivent d'une
-   frame à l'autre (portée fichier, comme `m`/`cur` ci-dessus), le temps que
-   le CPU termine son tour. */
+/* Le tour du CPU est étalé sur plusieurs frames (spec § 6.3) : un pas
+   d'ai_step() par itération de la boucle, entre deux WaitForVBlank(), pour
+   que le HUD (pastille clignotante) continue de s'animer. `job` et
+   `cpu_thinking` survivent d'une frame à l'autre (portée fichier, comme
+   `m`/`cur` ci-dessus), le temps que le CPU termine son tour.
+
+   Tout chemin qui quitterait GS_TURN au milieu d'une réflexion (menu de
+   pause, retour au titre, nouvelle partie...) doit remettre cpu_thinking à
+   FALSE : sinon le tour suivant du CPU reprendrait un AiJob périmé au
+   lieu d'appeler ai_begin(). */
 static AiJob  job;
 static bool_t cpu_thinking = FALSE;
 
-/* Candidats évalués par frame pendant que le CPU réfléchit (task 11 brief
-   étape 4) : assez petit pour ne jamais faire manquer un VBlank (chaque
-   candidat coûte une évaluation ai_eval_local(), voir docs/snes-notes.md
-   § 9), assez grand pour que le tour du CPU ne s'étale pas sur un nombre
-   de frames déraisonnable. */
-#define AI_STEP_BUDGET 4
+/* Budget d'un pas d'ai_step(), dans les unités des AI_COST_... d'ai.h (une
+   unité vaut environ un centième de frame, mesuré sur la console,
+   docs/snes-notes.md § 9). 90 laisse un dixième de la frame au reste de
+   l'itération (HUD, curseur). Mesuré : 110 frames pour 100 itérations sur
+   un tour du CPU ; une itération sur dix déborde d'une frame, quand une
+   étape coûte plus que prévu (une ligne de g1/g2 large, un candidat
+   entouré de changements). 80 ou 100 donnent un tour plus long. */
+#define AI_STEP_BUDGET 90
 
 #ifdef AI_MEASURE_FRAMES
 /* Build de mesure seulement (`make rom-measure`, jamais `make rom`) : durée
@@ -69,6 +75,8 @@ static u16          meas_start;
 static unsigned int meas_iters;
 static unsigned int meas_last_frames;
 static unsigned int meas_last_iters;
+static unsigned int meas_shown_frames;
+static unsigned int meas_shown_iters;
 #endif
 
 /* The small piece of visible state that decides whether the board/HUD need
@@ -128,6 +136,8 @@ int main(void)
        parte de zéro (constaté : 9999 affiché avant le premier tour). */
     meas_last_frames = 0;
     meas_last_iters = 0;
+    meas_shown_frames = 0;
+    meas_shown_iters = 0;
 #endif
     render_init();
     match_start(&m);
@@ -153,10 +163,8 @@ int main(void)
 #ifdef AI_MEASURE_FRAMES
                 meas_iters++;
 #endif
-                /* Un pas par frame, budget borné : le HUD (bandeau, pastille
-                   clignotante) continue de s'animer normalement pendant que
-                   le CPU réfléchit, la boucle ne bloque jamais plus d'une
-                   frame (task 11 étape 4, docs/snes-notes.md § 9). */
+                /* Un pas par itération, budget borné (AI_STEP_BUDGET) : le
+                   HUD continue de s'animer pendant que le CPU réfléchit. */
                 if (ai_step(&job, &m, &rng, AI_STEP_BUDGET)) {
                     int i;
 #ifdef AI_MEASURE_FRAMES
@@ -205,8 +213,16 @@ int main(void)
         }
         render_hud_now(&m, (bool_t)((frame & 16) != 0));
 #ifdef AI_MEASURE_FRAMES
-        render_hud_number4(12, meas_last_frames);
-        render_hud_number4(16, meas_last_iters);
+        /* Seulement quand le bandeau vient d'être reconstruit (il efface
+           ces chiffres) ou qu'une valeur a changé : les divisions par 10
+           coûtent cher sur la console et fausseraient la mesure. */
+        if (dirty || meas_last_frames != meas_shown_frames ||
+            meas_last_iters != meas_shown_iters) {
+            render_hud_number4(12, meas_last_frames);
+            render_hud_number4(16, meas_last_iters);
+            meas_shown_frames = meas_last_frames;
+            meas_shown_iters = meas_last_iters;
+        }
 #endif
         /* Curseur masqué pendant que le CPU réfléchit (task 11) : sa
            position resterait celle du dernier tour humain, sans rapport
