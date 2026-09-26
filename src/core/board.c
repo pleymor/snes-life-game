@@ -53,19 +53,22 @@ void board_count_pair(const Board *b, int *p1, int *p2)
     *p2 = c2;
 }
 
+/* Par pointeur de ligne, comme board_count() : b->c[y][x] indexé
+   directement multiplie par BSTRIDE (34) à chaque accès sur la console, et
+   board_wrap() est appelée plusieurs fois par tour de l'IA. */
 void board_wrap(Board *b)
 {
-    int x, y;
+    u8 *row = &b->c[1][0];
+    int y;
     /* Colonnes d'abord, sur les seules lignes de jeu... */
     for (y = 1; y <= BOARD_H; y++) {
-        b->c[y][0] = b->c[y][BOARD_W];
-        b->c[y][BOARD_W + 1] = b->c[y][1];
+        row[0] = row[BOARD_W];
+        row[BOARD_W + 1] = row[1];
+        row += BSTRIDE;
     }
     /* ...puis les lignes sur toute la largeur, ce qui remplit les coins. */
-    for (x = 0; x <= BOARD_W + 1; x++) {
-        b->c[0][x] = b->c[BOARD_H][x];
-        b->c[BOARD_H + 1][x] = b->c[1][x];
-    }
+    memcpy(&b->c[0][0], &b->c[BOARD_H][0], BSTRIDE);
+    memcpy(&b->c[BOARD_H + 1][0], &b->c[1][0], BSTRIDE);
 }
 
 void board_seed(Board *b)

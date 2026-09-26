@@ -56,6 +56,26 @@ static void test_wrap_recopie_dans_lautre_sens(void)
     T_EQ(b.c[0][0], CELL_P2);         /* coin haut-gauche */
 }
 
+/* Tout le halo, pas seulement les coins : chaque case de stockage vaut la
+   case de jeu repliée qu'elle représente. */
+static void test_wrap_remplit_tout_le_halo(void)
+{
+    static Board b;
+    int x, y;
+    board_clear(&b);
+    for (y = 0; y < BOARD_H; y++) {
+        for (x = 0; x < BOARD_W; x++) {
+            board_set(&b, x, y, (Cell)((x * 7 + y * 3) % 3));
+        }
+    }
+    board_wrap(&b);
+    for (y = -1; y <= BOARD_H; y++) {
+        for (x = -1; x <= BOARD_W; x++) {
+            T_EQ(b.c[y + 1][x + 1], board_get(&b, BOARD_WRAP_X(x), BOARD_WRAP_Y(y)));
+        }
+    }
+}
+
 /* § 2.4 de la spec : symétrie exacte par rotation de 180°. */
 static void test_seed_est_symetrique_par_rotation(void)
 {
@@ -171,6 +191,7 @@ void suite_board(void)
     T_RUN(test_count_compte_par_couleur);
     T_RUN(test_wrap_recopie_les_bords_opposes);
     T_RUN(test_wrap_recopie_dans_lautre_sens);
+    T_RUN(test_wrap_remplit_tout_le_halo);
     T_RUN(test_seed_est_symetrique_par_rotation);
     T_RUN(test_seed_place_le_bloc_du_joueur_1);
     T_RUN(test_count_sur_un_plateau_aleatoire_egale_un_comptage_independant);
