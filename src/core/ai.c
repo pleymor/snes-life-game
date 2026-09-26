@@ -35,6 +35,7 @@
 #define AI_E2         16
 #define AI_SUM_SPAN   (8 * AI_E2 + 1)          /* sommes possibles : 0 à 128 */
 #define AI_MAX_CANDS  256
+#define AI_COLLECT_CHUNK 4   /* cases ouvertes examinées par étape de collecte */
 #define AI_TOPK_EASY  8
 #define AI_TOPK_MAX   32
 
@@ -112,9 +113,25 @@ static void tables_init(void)
 #define AI_SUM8(p) ((p)[0] + (p)[1] + (p)[2] + (p)[BSTRIDE] + (p)[BSTRIDE + 2] + \
                     (p)[2 * BSTRIDE] + (p)[2 * BSTRIDE + 1] + (p)[2 * BSTRIDE + 2])
 
+/* Cases vides et à portée au début du tour, dans l'ordre de balayage : les
+   seules où chercher des candidats. Ni la portée ni les adversaires ne
+   changent pendant le tour, et les poses de l'IA ne font qu'occuper des
+   cases de cette liste : chaque collecte la reparcourt au lieu de balayer
+   les 768 cases. */
+static u8  open_x[BOARD_W * BOARD_H];
+static u8  open_y[BOARD_W * BOARD_H];
+/* Attraction de chaque case ouverte (voir enemy_pull_far()), calculée à
+   la première collecte qui en a besoin puis réutilisée : elle ne dépend
+   que des adversaires, qui ne bougent pas pendant le tour. AI_PULL_UNKNOWN
+   tant qu'elle n'est pas calculée. */
+#define AI_PULL_UNKNOWN 0xFF
+static u8  open_pull[BOARD_W * BOARD_H];
+static int n_open;
+
 /* Ligne de jeu y de `src` (valeurs Cell) codée dans wk ; rend TRUE si elle
-   contient une cellule de code `foe`. */
-static bool_t code_row(const Board *src, int y, u8 foe)
+   contient une cellule de code `foe`. Si `mrow` (ligne du masque de
+   portée) est donné, ajoute ses cases vides et à portée à la liste. */
+static bool_t code_row(const Board *src, int y, u8 foe, const u8 *mrow)
 {
     const u8 *in = &src->c[y + 1][1];
     u8 *out = &wk.c[y + 1][1];
@@ -124,6 +141,12 @@ static bool_t code_row(const Board *src, int y, u8 foe)
         u8 v = ai_code[in[x]];
         out[x] = v;
         if (v == foe) seen = TRUE;
+        if (mrow && v == 0 && mrow[x]) {
+            open_x[n_open] = (u8)x;
+            open_y[n_open] = (u8)y;
+            open_pull[n_open] = AI_PULL_UNKNOWN;
+            n_open++;
+        }
     }
     return seen;
 }
@@ -306,7 +329,7 @@ int ai_eval_local(const Board *b, Cell who, int x, int y, int depth)
     int k;
 
     if (!tables_ready) tables_init();
-    for (k = 0; k < BOARD_H; k++) code_row(b, k, 0);
+    for (k = 0; k < BOARD_H; k++) code_row(b, k, 0, (const u8 *)0);
     board_wrap(&wk);
 
     need_clear();
@@ -366,40 +389,52 @@ static int enemy_pull_far(u8 foe, int x, int y)
 
 static int scan_index(const Cand *c) { return (int)c->y * BOARD_W + (int)c->x; }
 
-/* Ajoute à `cands` (à partir de j->n) les candidats de la ligne j->row,
-   dans l'ordre de balayage : y croissant puis x croissant, et c'est cet
-   ordre qui sert de départage. `mrow` : ligne du masque de portée du
-   joueur courant (m->range_mask, tenu à jour par begin_turn() dans match.c
-   pour tout le tour). Au plafond AI_MAX_CANDS, la collecte s'arrête là,
-   lignes suivantes comprises. */
-static void collect_row(AiJob *j, const u8 *mrow)
+/* Examine jusqu'à AI_COLLECT_CHUNK cases de la liste des cases ouvertes à
+   partir de j->pos, et ajoute à `cands` (à partir de j->n) celles qui sont
+   encore vides et ont au moins un voisin vivant. La liste est dans l'ordre
+   de balayage (y croissant puis x croissant), et c'est cet ordre qui sert
+   de départage. Au plafond AI_MAX_CANDS, la collecte s'arrête là. */
+static void collect_chunk(AiJob *j)
 {
-    int x, n = j->n, y = j->row;
-    const u8 *row = &wk.c[y + 1][1];
+    const u8 *base = &wk.c[0][0];
+    int n = j->n, q = j->pos, end = q + AI_COLLECT_CHUNK;
     u8 f = ai_code[j->foe];
 
-    for (x = 0; x < BOARD_W; x++) {
-        const u8 *p;
-        int sum, nb, nf;
+    if (end > n_open) end = n_open;
+    for (; q < end; q++) {
+        int x = open_x[q], y = open_y[q];
+        /* Coin haut-gauche du voisinage, dans le halo : lignes de
+           stockage y à y + 2, contiguës. */
+        const u8 *p = base + row_off[y + AI_PAD] - BSTRIDE + x;
+        unsigned int sum, n1, n2, nf;
+        u8 pull;
 
-        if (row[x] != 0) continue;
-        if (!mrow[x]) continue;
-
-        p = row + x - BSTRIDE - 1;
-        sum = AI_SUM8(p);
+        if (p[BSTRIDE + 1] != 0) continue;   /* occupée par une pose du tour */
+        sum = (unsigned int)AI_SUM8(p);
         if (sum == 0) continue;   /* posée dans le vide, elle meurt sans rien produire */
         if (n >= AI_MAX_CANDS) {
-            j->row = BOARD_H - 1;   /* ai_step() l'avance à BOARD_H : fini */
+            q = n_open;
             break;
         }
-        nb = (sum & (AI_E2 - 1)) + sum / AI_E2;
-        nf = (f == AI_E1) ? (sum & (AI_E2 - 1)) : sum / AI_E2;
+        n1 = sum & (AI_E2 - 1);
+        n2 = sum >> 4;            /* AI_E2 = 16 */
+        nf = (f == AI_E1) ? n1 : n2;
         cands[n].x = (u8)x;
         cands[n].y = (u8)y;
-        cands[n].pre = (short)(2 * nb + (nf ? 3 : enemy_pull_far(f, x, y)));
+        if (nf) {
+            pull = 3;
+        } else {
+            pull = open_pull[q];
+            if (pull == AI_PULL_UNKNOWN) {
+                pull = (u8)enemy_pull_far(f, x, y);
+                open_pull[q] = pull;
+            }
+        }
+        cands[n].pre = (short)(2 * (int)(n1 + n2) + pull);
         n++;
     }
     j->n = n;
+    j->pos = q;
 }
 
 /* `pre` vaut 2 * voisins (1 à 8) + attraction (0 à 3) : de 2 à 19. */
@@ -474,7 +509,7 @@ static int next_needed(const u8 *need, int y)
 static void collect_start(AiJob *j)
 {
     j->phase = AI_PH_COLLECT;
-    j->row = 0;
+    j->pos = 0;
     j->n = 0;
     j->top = 0;
     j->i = 0;
@@ -496,7 +531,7 @@ static void collect_finish(AiJob *j)
     }
     need_lists();
     j->phase = AI_PH_GEN1;
-    j->row = next_needed(need_row1, 0);
+    j->pos = next_needed(need_row1, 0);
 }
 
 void ai_begin(AiJob *j, const Match *m, AiLevel lvl)
@@ -508,27 +543,49 @@ void ai_begin(AiJob *j, const Match *m, AiLevel lvl)
     j->foe   = (j->me == CELL_P1) ? CELL_P2 : CELL_P1;
     j->made  = 0;
     j->phase = AI_PH_PREP;
-    j->row   = 0;
+    j->pos   = 0;
     j->n     = 0;
+    n_open   = 0;
     j->top   = 0;
     j->i     = 0;
     if (!tables_ready) tables_init();
 }
 
+/* Coût de la prochaine étape, en unités de budget (ai.h). */
+static int step_cost(const AiJob *j)
+{
+    switch (j->phase) {
+    case AI_PH_PREP:    return AI_COST_PREP;
+    case AI_PH_COLLECT: return AI_COST_COLLECT;
+    case AI_PH_GEN1:    return AI_COST_GEN_ROW + AI_COST_GEN_2COLS * ncols1 / 2;
+    case AI_PH_GEN2:    return AI_COST_GEN_ROW + AI_COST_GEN_2COLS * ncols2 / 2;
+    default:            return (j->i < j->top) ? AI_COST_EVAL : AI_COST_PICK;
+    }
+}
+
 bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
 {
-    while (budget > 0) {
-        int pick, i;
+    int spent = 0;
+
+    for (;;) {
+        int pick, i, cost = step_cost(j);
+
+        /* La première étape se fait toujours ; les suivantes seulement si
+           elles tiennent dans ce qui reste du budget. */
+        if (spent > 0 && spent + cost > budget) {
+            return FALSE;
+        }
+        spent += cost;
 
         switch (j->phase) {
         case AI_PH_PREP:
             /* Copie codée du plateau, ligne par ligne, en notant où sont
                les adversaires. m->board n'a pas forcément son halo à jour
                (match_place() ne wrappe pas) : wk est wrappé à la fin. */
-            foe_row[j->row] = code_row(&m->board, j->row, ai_code[j->foe]);
-            j->row++;
-            budget -= AI_COST_PREP;
-            if (j->row >= BOARD_H) {
+            foe_row[j->pos] = code_row(&m->board, j->pos, ai_code[j->foe],
+                                       &m->range_mask[j->pos][0]);
+            j->pos++;
+            if (j->pos >= BOARD_H) {
                 int y, d;
                 board_wrap(&wk);
                 for (y = 0; y < BOARD_H; y++) {
@@ -541,10 +598,8 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
             continue;
 
         case AI_PH_COLLECT:
-            collect_row(j, &m->range_mask[j->row][0]);
-            j->row++;
-            budget -= AI_COST_ROW;
-            if (j->row >= BOARD_H) {
+            collect_chunk(j);
+            if (j->pos >= n_open) {
                 collect_finish(j);
             }
             continue;
@@ -553,16 +608,15 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
             /* collect_finish() et chaque ligne laissent `row` sur la
                prochaine ligne utile, ou BOARD_H : l'étape passe alors à la
                suivante sans rien coûter. */
-            if (j->row < BOARD_H) {
-                gen1_row(j->row);
-                j->row = next_needed(need_row1, j->row + 1);
-                budget -= AI_COST_GEN;
+            if (j->pos < BOARD_H) {
+                gen1_row(j->pos);
+                j->pos = next_needed(need_row1, j->pos + 1);
             }
-            if (j->row >= BOARD_H) {
+            if (j->pos >= BOARD_H) {
                 if (j->depth > 1) {
                     board_wrap(&g1b);
                     j->phase = AI_PH_GEN2;
-                    j->row = next_needed(need_row2, 0);
+                    j->pos = next_needed(need_row2, 0);
                 } else {
                     j->phase = AI_PH_EVAL;
                 }
@@ -570,12 +624,11 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
             continue;
 
         case AI_PH_GEN2:
-            if (j->row < BOARD_H) {
-                gen2_row(j->row);
-                j->row = next_needed(need_row2, j->row + 1);
-                budget -= AI_COST_GEN;
+            if (j->pos < BOARD_H) {
+                gen2_row(j->pos);
+                j->pos = next_needed(need_row2, j->pos + 1);
             }
-            if (j->row >= BOARD_H) {
+            if (j->pos >= BOARD_H) {
                 j->phase = AI_PH_EVAL;
             }
             continue;
@@ -588,7 +641,6 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
             scores[j->i] = eval_delta((int)cands[j->i].x, (int)cands[j->i].y,
                                       ai_code[j->me], j->depth);
             j->i++;
-            budget -= AI_COST_EVAL;
             continue;
         }
 
@@ -621,15 +673,12 @@ bool_t ai_step(AiJob *j, const Match *m, unsigned long *rng, int budget)
         wk.c[cands[pick].y + 1][cands[pick].x + 1] = ai_code[j->me];
         board_wrap(&wk);
         j->made++;
-        budget -= AI_COST_PICK;
 
         if (j->made >= BUDGET) {
             return TRUE;
         }
         collect_start(j);
     }
-
-    return FALSE;
 }
 
 int ai_choose(const Match *m, AiLevel lvl, unsigned long *rng, Move out[BUDGET])

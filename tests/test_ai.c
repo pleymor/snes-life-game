@@ -386,47 +386,50 @@ static void test_les_choix_de_lia_sont_epingles(void)
     T_EQ(rng, 3843456730UL);
 }
 
-/* Tout le travail est étalé : ai_begin() ne balaie rien, et chaque pas
-   d'une unité de budget fait une seule étape — une ligne de copie, une
-   ligne de collecte, une ligne de génération, un candidat. Un budget plus
-   petit que le coût d'une étape en fait quand même une (jamais de pas qui
-   n'avance pas). */
+/* Tout le travail est étalé : ai_begin() ne balaie rien, et un pas dont le
+   budget ne couvre qu'une étape n'en fait qu'une — une ligne de copie,
+   quelques cases de collecte, une ligne de génération, un candidat. Un
+   budget plus petit que le coût d'une étape en fait quand même une
+   (jamais de pas qui n'avance pas). */
 static void test_le_tour_est_etale_etape_par_etape(void)
 {
     AiJob job;
     unsigned long rng = 1UL;
-    int y;
+    int y, guard;
 
     fill_match(pin_seeds[0], CELL_P1, SPARSE);
     ai_begin(&job, &m, AI_NORMAL);
     T_EQ(job.phase, AI_PH_PREP);
-    T_EQ(job.row, 0);
+    T_EQ(job.pos, 0);
     for (y = 1; y < BOARD_H; y++) {
         T_FALSE(ai_step(&job, &m, &rng, AI_COST_PREP));
         T_EQ(job.phase, AI_PH_PREP);
-        T_EQ(job.row, y);
+        T_EQ(job.pos, y);
     }
     T_FALSE(ai_step(&job, &m, &rng, AI_COST_PREP));
     T_EQ(job.phase, AI_PH_COLLECT);
-    T_EQ(job.row, 0);
+    T_EQ(job.pos, 0);
     T_EQ(job.n, 0);
-    for (y = 1; y < BOARD_H; y++) {
-        T_FALSE(ai_step(&job, &m, &rng, AI_COST_ROW));
-        T_EQ(job.phase, AI_PH_COLLECT);
-        T_EQ(job.row, y);
+
+    guard = 0;
+    while (job.phase == AI_PH_COLLECT && guard < BOARD_W * BOARD_H) {
+        int before = job.pos;
+        T_FALSE(ai_step(&job, &m, &rng, AI_COST_COLLECT));
+        /* une poignée de cases au plus par pas */
+        T_TRUE(job.phase != AI_PH_COLLECT || (job.pos > before && job.pos <= before + 8));
+        guard++;
     }
-    T_FALSE(ai_step(&job, &m, &rng, AI_COST_ROW));
     T_EQ(job.phase, AI_PH_GEN1);
     T_EQ(job.n, pinned_sparse[0][7]);
     T_EQ(job.top, AI_TOPK_MAX_PINNED);
 
-    y = 0;
-    while (job.phase != AI_PH_EVAL && y < 4 * BOARD_H) {
-        int before = job.row, phase = job.phase;
-        T_FALSE(ai_step(&job, &m, &rng, AI_COST_GEN));
+    guard = 0;
+    while (job.phase != AI_PH_EVAL && guard < 4 * BOARD_H) {
+        int before = job.pos, phase = job.phase;
+        T_FALSE(ai_step(&job, &m, &rng, 1));
         /* une ligne de génération au plus par pas */
-        T_TRUE(job.phase != phase || job.row > before);
-        y++;
+        T_TRUE(job.phase != phase || job.pos > before);
+        guard++;
     }
     T_EQ(job.phase, AI_PH_EVAL);
     T_EQ(job.i, 0);
