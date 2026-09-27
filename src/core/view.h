@@ -14,6 +14,14 @@
 #define TILE_SLASH   17
 #define TILE_TIMES   18
 #define TILE_P       19
+#define TILE_LETTER_A 20   /* 20 à 45 : lettres A à Z, dans l'ordre */
+#define TILE_DASH     46
+#define TILE_DOT      47
+#define TILE_EXCL     48
+#define TILE_QUEST    49
+#define TILE_COLON    50
+#define TILE_APOS     51
+#define TILE_BIG_BASE 52   /* 52 à 83 : lettres du titre agrandies ×2 */
 
 #define HUD_W 32          /* le bandeau fait une seule ligne de tuiles */
 
@@ -29,6 +37,14 @@ void view_digits3(int value, u8 out[3]);
    de chaque joueur, poses restantes en pastilles, round courant et
    marqueur d'emballement. */
 void view_hud(const Match *m, u8 out[HUD_W]);
+
+/* Écrit la chaîne `s` en indices de tuiles dans out[0..width-1].
+   'A'..'Z' donnent les lettres, '0'..'9' les chiffres, - . ! ? : ' leurs
+   signes ; tout autre caractère (espace et minuscules compris) donne
+   TILE_EMPTY. Les cases au-delà de la chaîne sont mises à TILE_EMPTY ; une
+   chaîne plus longue que `width` est tronquée. Rien n'est écrit si
+   width <= 0. Rend le nombre de caractères de `s` écrits. */
+int view_text(const char *s, u8 *out, int width);
 
 /* Menu dessiné sur la zone de grille. `selected` va de 0 à 2 :
    0 = deux joueurs, 1 = contre CPU facile, 2 = contre CPU normal. */

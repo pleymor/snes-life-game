@@ -77,6 +77,36 @@ void view_hud(const Match *m, u8 out[HUD_W])
     }
 }
 
+static u8 text_tile(char c)
+{
+    if (c >= 'A' && c <= 'Z') return (u8)(TILE_LETTER_A + (c - 'A'));
+    if (c >= '0' && c <= '9') return (u8)(TILE_DIGIT0 + (c - '0'));
+    switch (c) {
+    case '-':  return TILE_DASH;
+    case '.':  return TILE_DOT;
+    case '!':  return TILE_EXCL;
+    case '?':  return TILE_QUEST;
+    case ':':  return TILE_COLON;
+    case '\'': return TILE_APOS;
+    default:   return TILE_EMPTY;
+    }
+}
+
+int view_text(const char *s, u8 *out, int width)
+{
+    int i = 0, n;
+    while (i < width && s[i] != '\0') {
+        out[i] = text_tile(s[i]);
+        i++;
+    }
+    n = i;
+    while (i < width) {
+        out[i] = TILE_EMPTY;
+        i++;
+    }
+    return n;
+}
+
 /* Lignes de tuile des trois choix du menu (deux joueurs, CPU facile, CPU
    normal). Portée fichier, à une dimension : va en ROM (.rodata), pas dans
    globram.data (docs/snes-notes.md § 10 — un `static const` local à une

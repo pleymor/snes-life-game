@@ -164,6 +164,57 @@ static void test_le_bandeau_de_fin_montre_les_populations_finales(void)
     T_EQ(hud[29], TILE_DIGIT0 + 1);   /* 001 rouge */
 }
 
+static u8 line[16];
+
+static void test_le_texte_devient_des_tuiles(void)
+{
+    int n = view_text("AZ09-.!?:'", line, 16);
+    T_EQ(n, 10);
+    T_EQ(line[0], TILE_LETTER_A);
+    T_EQ(line[1], TILE_LETTER_A + 25);
+    T_EQ(line[2], TILE_DIGIT0);
+    T_EQ(line[3], TILE_DIGIT0 + 9);
+    T_EQ(line[4], TILE_DASH);
+    T_EQ(line[5], TILE_DOT);
+    T_EQ(line[6], TILE_EXCL);
+    T_EQ(line[7], TILE_QUEST);
+    T_EQ(line[8], TILE_COLON);
+    T_EQ(line[9], TILE_APOS);
+    T_EQ(line[10], TILE_EMPTY);   /* au-delà de la chaîne : vide */
+    T_EQ(line[15], TILE_EMPTY);
+}
+
+static void test_les_caracteres_inconnus_sont_vides(void)
+{
+    int i;
+    for (i = 0; i < 16; i++) line[i] = 0x55;    /* RAM non remise à zéro */
+    view_text("a b#~", line, 16);
+    T_EQ(line[0], TILE_EMPTY);    /* minuscule */
+    T_EQ(line[1], TILE_EMPTY);    /* espace */
+    T_EQ(line[2], TILE_EMPTY);
+    T_EQ(line[3], TILE_EMPTY);    /* # */
+    T_EQ(line[4], TILE_EMPTY);    /* ~ */
+    T_EQ(line[5], TILE_EMPTY);
+}
+
+static void test_le_texte_est_tronque_a_la_largeur(void)
+{
+    int n;
+    line[3] = 0x55;
+    n = view_text("ABCDEF", line, 3);
+    T_EQ(n, 3);
+    T_EQ(line[2], TILE_LETTER_A + 2);
+    T_EQ(line[3], 0x55);          /* rien écrit au-delà de width */
+}
+
+static void test_une_largeur_nulle_n_ecrit_rien(void)
+{
+    line[0] = 0x55;
+    T_EQ(view_text("ABC", line, 0), 0);
+    T_EQ(view_text("ABC", line, -4), 0);
+    T_EQ(line[0], 0x55);
+}
+
 void suite_view(void)
 {
     T_RUN(test_les_cellules_prennent_la_tuile_de_leur_couleur);
@@ -178,4 +229,8 @@ void suite_view(void)
     T_RUN(test_le_menu_marque_la_ligne_choisie);
     T_RUN(test_le_bandeau_de_fin_montre_le_vainqueur);
     T_RUN(test_le_bandeau_de_fin_montre_les_populations_finales);
+    T_RUN(test_le_texte_devient_des_tuiles);
+    T_RUN(test_les_caracteres_inconnus_sont_vides);
+    T_RUN(test_le_texte_est_tronque_a_la_largeur);
+    T_RUN(test_une_largeur_nulle_n_ecrit_rien);
 }
