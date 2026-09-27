@@ -78,6 +78,14 @@ unzip -q /tmp/pvsneslib.zip -d ~/pvsneslib
 mv ~/pvsneslib/pvsneslib/* ~/pvsneslib/ && rmdir ~/pvsneslib/pvsneslib
 ```
 
+## Publier une version
+
+Le workflow **Release** (`.github/workflows/release.yml`) se lance à la main : onglet *Actions*, *Release*, *Run workflow*, puis saisir une version comme `v1.0.0`. Il installe PVSnesLib sur un runner Linux, lance les tests, construit la ROM et crée la release GitHub avec `immigration-<version>.sfc` en pièce jointe. Il refuse une version qui existe déjà. En ligne de commande :
+
+```bash
+gh workflow run release.yml -f version=v1.0.0
+```
+
 ## Organisation du code
 
 | Dossier | Contenu |

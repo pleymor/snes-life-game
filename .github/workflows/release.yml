@@ -1,0 +1,74 @@
+name: Release
+
+# Manual trigger: Actions tab > Release > Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag, e.g. v1.0.0"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark as a pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  PVSNESLIB_VERSION: "4.6.0"
+  PVSNESLIB_ZIP: "pvsneslib_460_64b_linux_release.zip"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Refuse an existing tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.version }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists"
+            exit 1
+          fi
+
+      - name: Install PVSnesLib
+        run: |
+          curl -sSL -o /tmp/pvsneslib.zip \
+            "https://github.com/alekmaul/pvsneslib/releases/download/${PVSNESLIB_VERSION}/${PVSNESLIB_ZIP}"
+          unzip -q /tmp/pvsneslib.zip -d "$HOME/pvsneslib"
+          # The archive nests everything in one extra pvsneslib/ folder.
+          if [ -d "$HOME/pvsneslib/pvsneslib" ]; then
+            mv "$HOME/pvsneslib/pvsneslib/"* "$HOME/pvsneslib/"
+            rmdir "$HOME/pvsneslib/pvsneslib"
+          fi
+          chmod -R +x "$HOME/pvsneslib/devkitsnes/bin" "$HOME/pvsneslib/devkitsnes/tools"
+          echo "PVSNESLIB_HOME=$HOME/pvsneslib" >> "$GITHUB_ENV"
+          "$HOME/pvsneslib/devkitsnes/bin/816-tcc" -v
+
+      - name: Run the host tests
+        run: make test
+
+      - name: Build the ROM
+        run: make rom
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          cp build/life.sfc "immigration-${TAG}.sfc"
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "immigration-${TAG}.sfc" \
+            --target "$GITHUB_SHA" \
+            --title "Immigration ${TAG}" \
+            --generate-notes \
+            "${flags[@]}"
