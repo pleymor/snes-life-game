@@ -60,6 +60,12 @@ void render_hud_now(const Match *m, bool_t blink_on);
    tour avec la ligne du bandeau puis une ligne vide. */
 void render_hud_from_row(const u8 row[HUD_W]);
 
+/* Prépare les trois lignes de texte du tutoriel (lignes 25 à 27 de BG2,
+   sous le bandeau) pour le prochain render_vblank(). Paramètre non const :
+   816-tcc signale à tort un type incompatible sur un tableau const à deux
+   dimensions. */
+void render_caption(u8 rows[3][HUD_W]);
+
 /* Marque le bandeau à reconstruire : le prochain render_hud_now() rappelle
    view_hud() au lieu de se contenter du clignotement bon marché. À appeler
    au démarrage (déjà fait, l'état initial est "à reconstruire") et partout

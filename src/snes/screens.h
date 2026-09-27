@@ -16,4 +16,8 @@ int  screen_menu(unsigned int *frames);
 /* Bloque jusqu'à une pression de START, plateau final laissé à l'écran. */
 void screen_result(const Match *m);
 
+/* Joue le tutoriel dans `m` jusqu'à sa fin ou jusqu'à START ; A passe à la
+   leçon suivante. Efface ses textes et cache le curseur en sortant. */
+void screen_tutorial(Match *m);
+
 #endif

@@ -22,6 +22,7 @@
 #include "view.h"
 #include "input.h"
 #include "ai.h"
+#include "tutorial.h"
 
 /* Bandeau de fin de partie : une alternance toutes les trente images
    réelles entre la couleur du vainqueur et une ligne vide. */
@@ -118,4 +119,57 @@ void screen_result(const Match *m)
 
         if (hit & KEY_START) return;
     }
+}
+
+void screen_tutorial(Match *m)
+{
+    /* Hors pile et posés à chaque appel : la RAM n'est pas remise à zéro. */
+    static TutPlayer p;
+    static u8 caption[3][HUD_W];
+    static u8 banner[HUD_W];
+    u16 last, now;
+    bool_t changed = TRUE;
+
+    tut_start(&p, m);
+    last = (u16)snes_vblank_count;
+
+    for (;;) {
+        unsigned short hit = input_edges((unsigned short *)0);
+
+        if (hit & KEY_START) break;
+        if (hit & KEY_A) {
+            tut_skip(&p, m);
+            changed = TRUE;
+        }
+        now = (u16)snes_vblank_count;
+        if (tut_update(&p, m, (int)(u16)(now - last))) changed = TRUE;
+        last = now;
+        if (p.done) break;
+
+        if (changed) {
+            render_board_now(m, p.show_range);
+            if (match_winner(m) != WINNER_NONE) {
+                view_result_banner(m, banner);
+                render_hud_from_row(banner);
+            } else {
+                render_hud_dirty();
+            }
+            view_caption(p.caption, caption);
+            render_caption(caption);
+            changed = FALSE;
+        }
+        if (match_winner(m) == WINNER_NONE) {
+            render_hud_now(m, (bool_t)((((unsigned int)(u16)snes_vblank_count / 15) & 1U) == 0U));
+        }
+        render_cursor(p.cursor_x, p.cursor_y, p.cursor_on);
+
+        WaitForVBlank();
+        render_vblank();
+    }
+
+    view_caption(-1, caption);
+    render_caption(caption);
+    render_cursor(0, 0, FALSE);
+    WaitForVBlank();
+    render_vblank();
 }

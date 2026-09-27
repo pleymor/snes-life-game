@@ -148,6 +148,12 @@ int main(void)
     render_init();
     input_reset();
 
+#ifdef BOOT_TUTORIAL
+    /* Variante de vérification (make rom-tutorial) : démarre sur le
+       tutoriel, puis rejoint le menu normal. */
+    screen_tutorial(&m);
+#endif
+
     for (;;) {
         GameState state = GS_TURN;
         int hold = 0;
@@ -170,6 +176,10 @@ int main(void)
            remise à zéro au démarrage (docs/snes-notes.md § 10), et rien
            ici ne doit garder l'état de la partie précédente. */
         cpu_level = screen_menu(&menu_frames);
+        if (cpu_level == MENU_TUTORIAL) {
+            screen_tutorial(&m);
+            continue;
+        }
         /* Graine explicite et reproductible pour une même chronologie
            d'entrées, mais qui varie d'une partie à l'autre avec le temps
            passé sur le menu (menu_frames) plutôt qu'une constante fixe : la

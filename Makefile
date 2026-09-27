@@ -9,7 +9,7 @@ PVSNESLIB_HOME ?= $(HOME)/pvsneslib
 # child process (e.g. `make buildActual`), so BUILD_ROM (and, for the
 # scripted and measurement builds, BUILD_ROM_SCRIPT/BUILD_ROM_MEASURE below)
 # is exported to the environment to keep the guard true there too.
-ifneq (,$(filter rom rom-script rom-measure,$(MAKECMDGOALS))$(BUILD_ROM))
+ifneq (,$(filter rom rom-script rom-measure rom-tutorial,$(MAKECMDGOALS))$(BUILD_ROM))
 
 export PVSNESLIB_HOME
 export BUILD_ROM := 1
@@ -31,7 +31,14 @@ CFLAGS += -Isrc/core
 # above plus main.c's AI_MEASURE_FRAMES counters, which show the frames and
 # loop iterations of the last CPU turn in place of the round counter
 # (docs/snes-notes.md §9). Opt-in only: `make rom` never defines it.
-ifneq (,$(filter rom-measure,$(MAKECMDGOALS))$(BUILD_ROM_MEASURE))
+# `rom-tutorial` builds life-tutorial.sfc, which boots straight into the
+# tutorial (main.c, BOOT_TUTORIAL) so it can be captured without a pad.
+ifneq (,$(filter rom-tutorial,$(MAKECMDGOALS))$(BUILD_ROM_TUTORIAL))
+export BUILD_ROM_TUTORIAL := 1
+export ROMNAME := life-tutorial
+export ROMTITLE := LIFE GAME TUTORIAL
+CFLAGS += -DBOOT_TUTORIAL
+else ifneq (,$(filter rom-measure,$(MAKECMDGOALS))$(BUILD_ROM_MEASURE))
 export BUILD_ROM_MEASURE := 1
 export ROMNAME := life-measure
 export ROMTITLE := LIFE GAME MEASURE
@@ -122,7 +129,7 @@ define check_ram
 	        print "RAM check: C statics end at " top " (limit " lim ")" }' $(1)
 endef
 
-.PHONY: rom rom-script rom-measure
+.PHONY: rom rom-script rom-measure rom-tutorial
 rom: clean-snes-intermediates buildWithSummary
 	$(call check_ram,$(ROMNAME).symfull)
 	mkdir -p build
@@ -144,13 +151,20 @@ rom-measure: clean-snes-intermediates buildWithSummary
 	mv $(ROMNAME).sym build/
 	mv $(ROMNAME).symfull build/
 
+rom-tutorial: clean-snes-intermediates buildWithSummary
+	$(call check_ram,$(ROMNAME).symfull)
+	mkdir -p build
+	mv $(ROMNAME).sfc build/
+	mv $(ROMNAME).sym build/
+	mv $(ROMNAME).symfull build/
+
 buildActual: $(OFILES) $(ROMNAME).sfc
 
 else
 
-.PHONY: rom rom-script rom-measure
-rom rom-script rom-measure:
-	@echo "Run 'make rom', 'make rom-script' or 'make rom-measure' on its own (not combined with other targets)."
+.PHONY: rom rom-script rom-measure rom-tutorial
+rom rom-script rom-measure rom-tutorial:
+	@echo "Run 'make rom', 'make rom-script', 'make rom-measure' or 'make rom-tutorial' on its own (not combined with other targets)."
 	@exit 1
 
 endif

@@ -20,6 +20,7 @@ static u8 hud[HUD_W];
    l'affichage actif. */
 static bool_t board_pending;
 static bool_t hud_pending;
+static bool_t caption_pending;
 
 /* view_hud() balaie une fois les 768 cases du plateau (board_count_pair())
    rien que pour préparer le bandeau ; le rappeler à chaque frame pour un
@@ -50,7 +51,7 @@ extern char sprites_pal, sprites_palend;
      0x0000 - 0x03FF  tilemap BG1 (le plateau)      32x32 entrées, 1024 mots
      0x0400 - 0x07FF  tilemap BG2 (le bandeau)       32x32 entrées, 1024 mots
      0x2000 - 0x200F  tuile du curseur (sprites)      1 tuile,        16 mots
-     0x4000 - 0x41FF  jeu de tuiles de fond (BG1+BG2) 32 tuiles,     512 mots
+     0x4000 - 0x47FF  jeu de tuiles de fond (BG1+BG2) 128 tuiles,   2048 mots
    Aucune zone ne recouvre une autre : les deux tilemaps se suivent, le jeu
    de tuiles de fond commence loin après, et la tuile de sprite est casée
    dans l'espace encore libre entre les deux, comme le fait l'exemple
@@ -71,6 +72,7 @@ extern char sprites_pal, sprites_palend;
    de défilement vertical : le bandeau est simplement écrit à demeure sur
    cette ligne de la tilemap de BG2. */
 #define HUD_ROW 24
+#define CAPTION_ROW 25
 
 #define CURSOR_OAM_ID 0
 
@@ -87,6 +89,7 @@ void render_init(void)
     }
     board_pending = FALSE;
     hud_pending = FALSE;
+    caption_pending = FALSE;
     hud_dirty = TRUE;
 
     /* Séquence exacte consignée dans docs/snes-notes.md à la tâche 0,
@@ -173,6 +176,17 @@ void render_hud_from_row(const u8 row[HUD_W])
     hud_pending = TRUE;
 }
 
+void render_caption(u8 rows[3][HUD_W])
+{
+    int r, i;
+    for (r = 0; r < 3; r++) {
+        unsigned short *dst = &map_bg2[(CAPTION_ROW + r) * 32];
+        const u8 *src = rows[r];
+        for (i = 0; i < HUD_W; i++) dst[i] = (unsigned short)src[i];
+    }
+    caption_pending = TRUE;
+}
+
 void render_hud_now(const Match *m, bool_t blink_on)
 {
     int icon_index;
@@ -240,6 +254,13 @@ void render_vblank(void)
                     (u16)(MAP_BG2_VRAM_ADDR + HUD_ROW * 32),
                     (u16)(HUD_W * sizeof(unsigned short)));
         hud_pending = FALSE;
+    }
+    /* Trois lignes de texte du tutoriel : 96 entrées, 192 octets. */
+    if (caption_pending) {
+        dmaCopyVram((u8 *)&map_bg2[CAPTION_ROW * 32],
+                    (u16)(MAP_BG2_VRAM_ADDR + CAPTION_ROW * 32),
+                    (u16)(3 * HUD_W * sizeof(unsigned short)));
+        caption_pending = FALSE;
     }
     /* Rien à faire ici pour le curseur : la routine d'interruption NMI que
        PVSnesLib installe par défaut transfère elle-même oamMemory vers
