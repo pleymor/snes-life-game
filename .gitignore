@@ -3,8 +3,6 @@ build/
 *.smc
 *.o
 *.sym
-tests/run
-tools/sim
 .DS_Store
 
 # artefacts produits par la chaîne PVSnesLib (gfx4snes, 816-tcc, wla-65816)
