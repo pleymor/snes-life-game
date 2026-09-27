@@ -119,21 +119,43 @@ static void test_le_tutoriel_se_termine(void)
     T_TRUE(frames < 5000);
 }
 
+/* Même lecteur et même partie, champ par champ. */
+static TutPlayer p2;
+
+static int same_state(const TutPlayer *a, const Match *ma, const TutPlayer *b, const Match *mb)
+{
+    int x, y;
+    if (a->pc != b->pc || a->wait != b->wait || a->lesson != b->lesson ||
+        a->caption != b->caption || a->cursor_x != b->cursor_x ||
+        a->cursor_y != b->cursor_y || a->cursor_on != b->cursor_on ||
+        a->show_range != b->show_range || a->done != b->done) return 0;
+    if (ma->round != mb->round || ma->turn != mb->turn ||
+        ma->winner != mb->winner || ma->placed != mb->placed) return 0;
+    for (y = 0; y < BOARD_H; y++)
+        for (x = 0; x < BOARD_W; x++)
+            if (board_get(&ma->board, x, y) != board_get(&mb->board, x, y)) return 0;
+    return 1;
+}
+
 static void test_le_decoupage_des_images_ne_change_rien(void)
 {
+    /* Le lecteur découpé avance en parallèle d'une référence image par
+       image ; l'état complet doit coïncider après chaque morceau. */
     static const int chunks[3] = { 7, 1000, 1 };
-    int c, x, y, same;
-    tut_start(&p, &ref);
-    while (!p.done) tut_update(&p, &ref, 1);
+    int c, k, diverged, guard;
     for (c = 0; c < 3; c++) {
         tut_start(&p, &m);
-        while (!p.done) tut_update(&p, &m, chunks[c]);
-        same = 1;
-        for (y = 0; y < BOARD_H; y++)
-            for (x = 0; x < BOARD_W; x++)
-                if (board_get(&m.board, x, y) != board_get(&ref.board, x, y)) same = 0;
-        T_TRUE(same);
-        T_EQ(match_winner(&m), match_winner(&ref));
+        tut_start(&p2, &ref);
+        diverged = 0;
+        guard = 0;
+        while (!p2.done && guard < 6000) {
+            tut_update(&p, &m, chunks[c]);
+            for (k = 0; k < chunks[c]; k++) tut_update(&p2, &ref, 1);
+            if (!same_state(&p, &m, &p2, &ref)) diverged = 1;
+            guard++;
+        }
+        T_FALSE(diverged);
+        T_TRUE(p.done);
     }
 }
 
@@ -164,17 +186,24 @@ static void test_passer_au_dela_de_la_derniere_lecon_termine(void)
 
 static void test_le_tutoriel_ne_depend_pas_de_la_memoire(void)
 {
-    int x, y, same = 1;
-    tut_start(&p, &ref);
-    while (!(p.lesson == 4 && tut_lesson_done(&p))) tut_update(&p, &ref, 1);
+    /* Un départ depuis une mémoire remplie de 0x55 suit exactement un
+       départ propre, image par image, jusqu'à la fin. */
+    int diverged = 0, guard = 0;
+    memset(&p2, 0, sizeof(p2));
+    memset(&ref, 0, sizeof(ref));
+    tut_start(&p2, &ref);
     memset(&p, 0x55, sizeof(p));
     memset(&m, 0x55, sizeof(m));
     tut_start(&p, &m);
-    while (!(p.lesson == 4 && tut_lesson_done(&p))) tut_update(&p, &m, 1);
-    for (y = 0; y < BOARD_H; y++)
-        for (x = 0; x < BOARD_W; x++)
-            if (board_get(&m.board, x, y) != board_get(&ref.board, x, y)) same = 0;
-    T_TRUE(same);
+    if (!same_state(&p, &m, &p2, &ref)) diverged = 1;
+    while (!p2.done && guard < 6000) {
+        tut_update(&p, &m, 1);
+        tut_update(&p2, &ref, 1);
+        if (!same_state(&p, &m, &p2, &ref)) diverged = 1;
+        guard++;
+    }
+    T_FALSE(diverged);
+    T_TRUE(p.done);
 }
 
 static void test_les_textes_tiennent_sur_trois_lignes(void)
