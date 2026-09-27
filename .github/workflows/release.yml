@@ -42,15 +42,16 @@ jobs:
         run: |
           curl -sSL -o /tmp/pvsneslib.zip \
             "https://github.com/alekmaul/pvsneslib/releases/download/${PVSNESLIB_VERSION}/${PVSNESLIB_ZIP}"
-          unzip -q /tmp/pvsneslib.zip -d "$HOME/pvsneslib"
-          # The archive nests everything in one extra pvsneslib/ folder.
-          if [ -d "$HOME/pvsneslib/pvsneslib" ]; then
-            mv "$HOME/pvsneslib/pvsneslib/"* "$HOME/pvsneslib/"
-            rmdir "$HOME/pvsneslib/pvsneslib"
-          fi
-          chmod -R +x "$HOME/pvsneslib/devkitsnes/bin" "$HOME/pvsneslib/devkitsnes/tools"
-          echo "PVSNESLIB_HOME=$HOME/pvsneslib" >> "$GITHUB_ENV"
-          "$HOME/pvsneslib/devkitsnes/bin/816-tcc" -v
+          unzip -q /tmp/pvsneslib.zip -d "$RUNNER_TEMP/pvsneslib"
+          # The archive nests its content in an extra folder, which itself
+          # holds a pvsneslib/ library folder: locate the directory that
+          # contains devkitsnes/ instead of flattening.
+          devkit=$(find "$RUNNER_TEMP/pvsneslib" -maxdepth 3 -type d -name devkitsnes | head -n 1)
+          if [ -z "$devkit" ]; then echo "::error::devkitsnes not found in the archive"; exit 1; fi
+          home=$(dirname "$devkit")
+          chmod -R +x "$home/devkitsnes/bin" "$home/devkitsnes/tools"
+          echo "PVSNESLIB_HOME=$home" >> "$GITHUB_ENV"
+          "$home/devkitsnes/bin/816-tcc" -v
 
       - name: Run the host tests
         run: make test
