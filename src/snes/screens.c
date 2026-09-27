@@ -1,12 +1,12 @@
 /*---------------------------------------------------------------------------------
 
-    Task 12: the mode menu and the result screen, bracketing the game loop
-    of main.c.
+    The mode menu and the result screen, bracketing the game loop of
+    main.c.
 
     Both loops below follow the exact same model as main.c's game loop:
-    logic -> prepare (render_board_from_grid()/render_hud_from_row(),
-    task 12's generic counterparts of render_board_now()/render_hud_now())
-    -> WaitForVBlank() -> render_vblank(). Neither loop ever touches VRAM
+    logic -> prepare (render_board_from_grid()/render_hud_from_row(), the
+    generic counterparts of render_board_now()/render_hud_now()) ->
+    WaitForVBlank() -> render_vblank(). Neither loop ever touches VRAM
     itself: view_menu()/view_board()/view_result_banner() (src/core/view.c)
     build the tile grids and rows, render.c owns every DMA transfer.
 
@@ -23,11 +23,11 @@
 #include "input.h"
 #include "ai.h"
 
-/* Bandeau de fin de partie : une alternance toutes les trente frames entre
-   la couleur du vainqueur et une ligne vide (brief, tâche 12, step 5). */
+/* Bandeau de fin de partie : une alternance toutes les trente images
+   réelles entre la couleur du vainqueur et une ligne vide. */
 #define RESULT_BLINK_PERIOD 30
 
-int screen_menu(void)
+int screen_menu(unsigned int *frames)
 {
     /* Le plateau (768 octets) et la ligne de bandeau ne tiennent pas sur
        la pile (règle du projet : aucune automatique de plus de 64 octets),
@@ -39,10 +39,12 @@ int screen_menu(void)
     static u8 hud_row[HUD_W];
     int selected = 0;
     bool_t dirty = TRUE;   /* force la toute première image */
+    unsigned int frame = 0;
     int i;
 
-    /* Le bandeau du menu reste vide tout du long (règle du contrôleur) :
-       préparé une seule fois, jamais reconstruit ensuite. */
+    /* Le bandeau du menu reste vide tout du long, la sélection se lit sur
+       le plateau (view_menu()) : préparé une seule fois, jamais reconstruit
+       ensuite. */
     for (i = 0; i < HUD_W; i++) hud_row[i] = TILE_EMPTY;
     render_hud_from_row(hud_row);
     /* Curseur de jeu caché sur le menu. */
@@ -61,10 +63,12 @@ int screen_menu(void)
         }
         render_cursor(0, 0, FALSE);
 
+        frame++;
         WaitForVBlank();
         render_vblank();
 
         if (hit & (KEY_A | KEY_START)) {
+            *frames = frame;
             if (selected == 0) return -1;
             return (selected == 1) ? (int)AI_EASY : (int)AI_NORMAL;
         }
@@ -76,7 +80,12 @@ void screen_result(const Match *m)
     static u8 grid[BOARD_H][BOARD_W];
     static u8 banner_row[HUD_W];
     static u8 blank_row[HUD_W];
-    unsigned int frame = 0;
+    /* Période courante de snes_vblank_count (images réelles écoulées / 30) :
+       comparée d'un tour de boucle à l'autre, son changement dit quand
+       basculer — pilotage par le temps réel plutôt que par les itérations
+       de cette boucle (voir main.c pour le même choix sur le clignotement
+       du HUD). */
+    unsigned int last_period = (unsigned int)(u16)snes_vblank_count / RESULT_BLINK_PERIOD;
     bool_t blink_on = TRUE;   /* le bandeau démarre affiché */
     int i;
 
@@ -86,7 +95,7 @@ void screen_result(const Match *m)
     view_board(m, FALSE, grid);
     render_board_from_grid(grid);
 
-    view_result_banner(match_winner(m), banner_row);
+    view_result_banner(m, banner_row);
     for (i = 0; i < HUD_W; i++) blank_row[i] = TILE_EMPTY;
     render_hud_from_row(banner_row);
 
@@ -94,9 +103,10 @@ void screen_result(const Match *m)
 
     for (;;) {
         unsigned short hit = input_edges((unsigned short *)0);
+        unsigned int period = (unsigned int)(u16)snes_vblank_count / RESULT_BLINK_PERIOD;
 
-        frame++;
-        if ((frame % RESULT_BLINK_PERIOD) == 0) {
+        if (period != last_period) {
+            last_period = period;
             blink_on = (bool_t)!blink_on;
             render_hud_from_row(blink_on ? banner_row : blank_row);
         }

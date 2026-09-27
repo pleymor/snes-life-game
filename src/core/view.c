@@ -1,13 +1,11 @@
 #include "view.h"
 
-/* Fix round 1 (perf review, docs/snes-notes.md § 8) : le masque de portée
-   n'est plus recalculé ici. m->range_mask est déjà tenu à jour pour tout
-   le tour par begin_turn() (match.c) ; le lire directement évite à la
-   fois un appel à rules_range_mask() par rafraîchissement et, avant ça,
-   un rules_in_range() par case vide. board_get(&m->board, x, y) est
-   également remplacé par un pointeur de ligne hoisté hors de la boucle
-   sur x, pour la même raison (une seule multiplication par ligne au lieu
-   d'une par case, via BSTRIDE — voir board.c). */
+/* m->range_mask est déjà tenu à jour pour tout le tour par begin_turn()
+   (match.c) : le lire directement évite un appel à rules_range_mask() par
+   rafraîchissement et, avant ça, un rules_in_range() par case vide.
+   board_get(&m->board, x, y) est également remplacé par un pointeur de
+   ligne hoisté hors de la boucle sur x (une seule multiplication par ligne
+   au lieu d'une par case, via BSTRIDE — voir board.c). */
 void view_board(const Match *m, bool_t show_range, u8 out[BOARD_H][BOARD_W])
 {
     int x, y;
@@ -58,7 +56,7 @@ void view_hud(const Match *m, u8 out[HUD_W])
     }
 
     /* Un seul passage des 768 cases pour les deux couleurs, plutôt que
-       deux appels séparés à board_count() (fix round 1, § c). */
+       deux appels séparés à board_count(). */
     board_count_pair(&m->board, &p1, &p2);
 
     out[0]  = TILE_P1;
@@ -79,9 +77,14 @@ void view_hud(const Match *m, u8 out[HUD_W])
     }
 }
 
+/* Lignes de tuile des trois choix du menu (deux joueurs, CPU facile, CPU
+   normal). Portée fichier, à une dimension : va en ROM (.rodata), pas dans
+   globram.data (docs/snes-notes.md § 10 — un `static const` local à une
+   fonction, comme cette table l'était avant, y serait allé à la place). */
+static const u8 menu_rows[3] = { 10, 12, 14 };
+
 void view_menu(int selected, u8 out[BOARD_H][BOARD_W])
 {
-    static const u8 rows[3] = { 10, 12, 14 };
     int x, y, i;
 
     for (y = 0; y < BOARD_H; y++) {
@@ -90,7 +93,7 @@ void view_menu(int selected, u8 out[BOARD_H][BOARD_W])
         }
     }
     for (i = 0; i < 3; i++) {
-        u8 r = rows[i];
+        u8 r = menu_rows[i];
         out[r][10] = (u8)((i == selected) ? TILE_PIP_ON : TILE_EMPTY);
         out[r][12] = (u8)(TILE_DIGIT0 + (i == 0 ? 2 : 1));
         out[r][13] = TILE_P;
@@ -101,12 +104,21 @@ void view_menu(int selected, u8 out[BOARD_H][BOARD_W])
     }
 }
 
-void view_result_banner(Winner w, u8 out[HUD_W])
+void view_result_banner(const Match *m, u8 out[HUD_W])
 {
-    int i;
+    int i, p1, p2;
+    Winner w = match_winner(m);
+
     for (i = 0; i < HUD_W; i++) {
         out[i] = TILE_EMPTY;
     }
+
+    out[0]  = TILE_P1;
+    out[31] = TILE_P2;
+    board_count_pair(&m->board, &p1, &p2);
+    view_digits3(p1, &out[2]);
+    view_digits3(p2, &out[27]);
+
     for (i = 12; i < 20; i++) {
         if (w == WINNER_P1)      out[i] = TILE_P1;
         else if (w == WINNER_P2) out[i] = TILE_P2;

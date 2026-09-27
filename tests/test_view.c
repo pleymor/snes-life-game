@@ -126,16 +126,42 @@ static void test_le_menu_marque_la_ligne_choisie(void)
 
 static void test_le_bandeau_de_fin_montre_le_vainqueur(void)
 {
-    view_result_banner(WINNER_P1, hud);
+    match_start(&m);
+    m.winner = WINNER_P1;
+    view_result_banner(&m, hud);
     T_EQ(hud[12], TILE_P1);
     T_EQ(hud[19], TILE_P1);
-    T_EQ(hud[0], TILE_EMPTY);
-    view_result_banner(WINNER_P2, hud);
+    m.winner = WINNER_P2;
+    view_result_banner(&m, hud);
     T_EQ(hud[12], TILE_P2);
     /* Un nul alterne les deux couleurs. */
-    view_result_banner(WINNER_DRAW, hud);
+    m.winner = WINNER_DRAW;
+    view_result_banner(&m, hud);
     T_EQ(hud[12], TILE_P1);
     T_EQ(hud[13], TILE_P2);
+}
+
+/* Spec § 4 : le bandeau de fin montre aussi les deux populations finales,
+   aux mêmes colonnes que le bandeau de jeu (2-4 et 27-29), autour du centre
+   clignotant. Plateau construit à la main : 2 bleues, 1 rouge. */
+static void test_le_bandeau_de_fin_montre_les_populations_finales(void)
+{
+    match_start(&m);
+    board_clear(&m.board);
+    board_set(&m.board, 0, 0, CELL_P1);
+    board_set(&m.board, 1, 0, CELL_P1);
+    board_set(&m.board, 2, 0, CELL_P2);
+    board_wrap(&m.board);
+    m.winner = WINNER_P1;
+    view_result_banner(&m, hud);
+    T_EQ(hud[0], TILE_P1);
+    T_EQ(hud[31], TILE_P2);
+    T_EQ(hud[2], TILE_DIGIT0);
+    T_EQ(hud[3], TILE_DIGIT0);
+    T_EQ(hud[4], TILE_DIGIT0 + 2);    /* 002 bleues */
+    T_EQ(hud[27], TILE_DIGIT0);
+    T_EQ(hud[28], TILE_DIGIT0);
+    T_EQ(hud[29], TILE_DIGIT0 + 1);   /* 001 rouge */
 }
 
 void suite_view(void)
@@ -151,4 +177,5 @@ void suite_view(void)
     T_RUN(test_le_menu_affiche_les_trois_modes);
     T_RUN(test_le_menu_marque_la_ligne_choisie);
     T_RUN(test_le_bandeau_de_fin_montre_le_vainqueur);
+    T_RUN(test_le_bandeau_de_fin_montre_les_populations_finales);
 }
