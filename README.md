@@ -49,7 +49,7 @@ Le jeu tourne sur une vraie SNES ou dans un émulateur. Il se joue à deux sur l
 | SELECT | afficher ou masquer la portée | — |
 | START | finir son tour | valider |
 
-Les trois modes du menu sont : `2P` pour deux joueurs, `1P×1` contre le CPU facile et `1P×2` contre le CPU normal. Contre le CPU, le joueur humain joue le bleu. À l'écran de fin, START ramène au menu.
+Le menu, sous le titre, propose trois modes : `2 PLAYERS` pour jouer à deux, `VS CPU  EASY` contre le CPU facile et `VS CPU  HARD` contre le CPU normal. Contre le CPU, le joueur humain joue le bleu. À l'écran de fin, START ramène au menu.
 
 ## Construire le jeu
 

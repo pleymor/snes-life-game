@@ -1062,3 +1062,7 @@ default). Today the C statics end at 7E:6F78 (`rom`), 7E:6F7C
 (`rom-script`) and 7E:6F88 (`rom-measure`): about 4.1 KB left, of which
 `ai.c` uses about 10 KB of the 19.9 KB taken. `make rom RAM_LIMIT=007e6000`
 shows the failure.
+
+## 11. Tile sheet layout
+
+`tools/mktiles.py` generates `data/tiles.bmp`, 128 × 64 pixels, 128 slots of 8 × 8. Indices 0-19 are the board, HUD and result tiles and never move. 20-45 are the letters A-Z, 46-51 the signs `- . ! ? : '`, 52-83 the title letters `I M G R A T O N` at double size (4 tiles each: top-left, top-right, bottom-left, bottom-right), 84-127 are free. The whole sheet is 4 KB of VRAM, from word address 0x4000 to 0x47FF. `view_text()` in `src/core/view.c` maps characters to these indices.
