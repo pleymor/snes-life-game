@@ -250,10 +250,28 @@ static void test_commencer_un_tour_recalcule_la_portee(void)
             T_EQ(m.range_mask[y][x], rules_in_range(&m.board, CELL_P2, x, y) ? 1 : 0);
 }
 
+static void test_une_generation_sans_arbitrage(void)
+{
+    match_start(&m);
+    board_clear(&m.board);
+    board_set(&m.board, 10, 10, CELL_P1);    /* bloc bleu, aucun rouge */
+    board_set(&m.board, 11, 10, CELL_P1);
+    board_set(&m.board, 10, 11, CELL_P1);
+    board_set(&m.board, 11, 11, CELL_P1);
+    board_set(&m.board, 20, 10, CELL_P1);    /* bleue seule : meurt */
+    match_generation(&m);
+    T_EQ(board_get(&m.board, 20, 10), CELL_EMPTY);
+    T_EQ(board_get(&m.board, 10, 10), CELL_P1);
+    T_EQ(match_winner(&m), WINNER_NONE);     /* le rouge est absent, pas éteint par la partie */
+    T_EQ(m.turn, CELL_P1);
+    T_EQ(m.round, 1);
+}
+
 void suite_match(void)
 {
     T_RUN(test_une_generation_ne_change_ni_tour_ni_round);
     T_RUN(test_une_generation_detecte_l_extinction);
+    T_RUN(test_une_generation_sans_arbitrage);
     T_RUN(test_commencer_un_tour_recalcule_la_portee);
     T_RUN(test_trois_poses_puis_le_budget_est_epuise);
     T_RUN(test_une_pose_hors_portee_est_refusee);

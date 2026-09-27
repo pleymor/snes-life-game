@@ -30,12 +30,17 @@ void match_begin_turn(Match *m, Cell who)
     rules_range_mask(&m->range, who, m->range_mask);
 }
 
-void match_tick(Match *m)
+void match_generation(Match *m)
 {
-    if (m->winner != WINNER_NONE) return;
     board_wrap(&m->board);
     life_tick(&m->board, &scratch);
     m->board = scratch;
+}
+
+void match_tick(Match *m)
+{
+    if (m->winner != WINNER_NONE) return;
+    match_generation(m);
     m->winner = judge_extinction(&m->board);
 }
 

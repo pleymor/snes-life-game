@@ -6,6 +6,7 @@ void suite_rules(void);
 void suite_match(void);
 void suite_view(void);
 void suite_ai(void);
+void suite_tutorial(void);
 
 int main(void)
 {
@@ -15,5 +16,6 @@ int main(void)
     suite_match();
     suite_view();
     suite_ai();
+    suite_tutorial();
     return t_report();
 }

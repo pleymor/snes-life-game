@@ -41,6 +41,11 @@ bool_t match_undo(Match *m);
    partie est déjà terminée (match_winner() != WINNER_NONE). */
 void   match_end_turn(Match *m);
 
+/* Une génération seule : halo recopié puis life_tick. Ni arbitrage, ni
+   changement de tour ou de round. Sert aux démonstrations (tutoriel), où
+   un camp peut être absent sans que la partie soit perdue. */
+void match_generation(Match *m);
+
 /* Une génération : halo recopié, life_tick, puis contrôle d'extinction
    (m->winner mis à jour). Le tour, le round et les poses ne changent pas.
    Sans effet si la partie est finie. */
