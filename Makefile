@@ -124,25 +124,25 @@ endef
 
 .PHONY: rom rom-script rom-measure
 rom: clean-snes-intermediates buildWithSummary
+	$(call check_ram,$(ROMNAME).symfull)
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
 	mv $(ROMNAME).sym build/
 	mv $(ROMNAME).symfull build/
-	$(call check_ram,build/$(ROMNAME).symfull)
 
 rom-script: clean-snes-intermediates buildWithSummary
+	$(call check_ram,$(ROMNAME).symfull)
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
 	mv $(ROMNAME).sym build/
 	mv $(ROMNAME).symfull build/
-	$(call check_ram,build/$(ROMNAME).symfull)
 
 rom-measure: clean-snes-intermediates buildWithSummary
+	$(call check_ram,$(ROMNAME).symfull)
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
 	mv $(ROMNAME).sym build/
 	mv $(ROMNAME).symfull build/
-	$(call check_ram,build/$(ROMNAME).symfull)
 
 buildActual: $(OFILES) $(ROMNAME).sfc
 
