@@ -1,27 +1,43 @@
 # Immigration — un jeu de la vie à deux joueurs pour Super Nintendo
 
-Deux colonies, une bleue et une rouge, partagent un plateau torique de 32 × 24 cases qui évolue selon les règles du jeu de la vie. À chaque tour, chaque joueur pose jusqu'à trois cellules près de sa colonie. Puis le monde avance d'une génération. Le but est d'éteindre la colonie adverse, ou d'être le plus nombreux au bout de 40 rounds.
+Deux colonies de cellules, les Bleus et les Rouges, se disputent un petit monde de 32 × 24 cases. Personne ne tire, personne ne pioche de carte : les cellules naissent, vivent et meurent toutes seules, selon les lois implacables du jeu de la vie. Votre seul pouvoir est de glisser, à chaque tour, trois nouvelles recrues au bon endroit… puis de regarder le monde avancer en croisant les doigts.
 
-Le jeu tourne sur une vraie SNES ou dans un émulateur. Il se joue à deux sur la même console, ou seul contre un CPU à deux niveaux.
+## Comment gagner
+
+Il y a deux façons de l'emporter :
+
+1. **L'extinction.** Si, après une génération, l'adversaire n'a plus une seule cellule sur le plateau, vous gagnez sur-le-champ. Si les deux colonies disparaissent en même temps, personne ne gagne : c'est un match nul, et un plateau très calme.
+2. **Le recensement.** Si personne n'a été éteint au bout de 40 rounds, on compte les cellules. La plus grosse colonie gagne ; à égalité, c'est nul.
+
+## Les lois du monde
+
+**Le monde est rond.** Enfin, torique : ce qui sort à droite revient par la gauche, ce qui sort en haut revient par le bas. Aucun coin où se cacher.
+
+**Une génération, c'est trois règles :**
+
+- une cellule qui a **2 ou 3 voisines** survit, parce qu'elle est bien entourée ;
+- une cellule qui en a moins meurt d'ennui, et une qui en a plus meurt étouffée ;
+- une case vide entourée d'**exactement 3 cellules** voit naître une nouvelle cellule. Elle prend la couleur **majoritaire** parmi ses trois parents : deux Bleus et un Rouge font un Bleu. C'est ça, l'*Immigration* — on peut convertir le territoire adverse.
+
+**Un round se joue en quatre temps.** Le Bleu pose, le Rouge pose, le monde avance, puis on vérifie si quelqu'un a gagné.
+
+**Vos poses.** Jusqu'à **3 cellules par tour**, sur une case vide, à **2 cases au plus** d'une de vos cellules : ce sont les petits points gris. La zone est figée au début du tour, donc pas question de ramper en enchaînant les poses. Pour conquérir un coin lointain, envoyez un planeur : ce petit motif traverse le plateau tout seul et vous ouvre une tête de pont là où il arrive.
+
+**L'emballement.** À partir du round 16, le monde s'affole et avance de **deux générations** par round. Le bandeau affiche `×2`. Les colonies fragiles s'effondrent, et un coup bien placé peut faire tomber un camp entier.
+
+**Le bandeau du bas** montre, de chaque côté, la population et les poses qu'il vous reste, et au centre le round en cours. La pastille du joueur qui a la main clignote.
+
+## En images
 
 | Menu | Portée de pose |
 |---|---|
-| ![Menu de choix du mode](docs/screenshots/menu.png) | ![Tour du rouge, points de portée affichés](docs/screenshots/range.png) |
+| ![Menu de choix du mode](docs/screenshots/menu.png) | ![Tour du Rouge, points de portée affichés](docs/screenshots/range.png) |
 | **L'emballement, round 24** | **Le CPU vient de poser** |
-| ![Round 24 en ×2, planeurs en route](docs/screenshots/gliders.png) | ![Trois cellules rouges posées avant le tick](docs/screenshots/cpu-move.png) |
+| ![Round 24 en ×2, planeurs en route](docs/screenshots/gliders.png) | ![Trois cellules rouges posées avant la génération](docs/screenshots/cpu-move.png) |
 
 ![Écran de fin : populations finales et bandeau du résultat](docs/screenshots/result.png)
 
-## Règles
-
-- **Le plateau** fait 32 × 24 cases et se referme sur lui-même : ce qui sort à droite rentre à gauche, ce qui sort en haut rentre en bas.
-- **Une génération** suit les règles de Conway. Une cellule vivante survit avec 2 ou 3 voisines. Une case vide avec exactement 3 voisines donne naissance à une cellule, de la couleur majoritaire parmi ces trois voisines : c'est la variante *Immigration*.
-- **Un round** se déroule en quatre temps : le bleu pose, le rouge pose, puis le plateau évolue, puis on contrôle la victoire.
-- **Les poses** sont limitées à 3 par tour, sur une case vide à distance 2 au plus d'une de ses cellules. La portée est figée au début du tour : une cellule qu'on vient de poser ne l'étend pas. Envoyer un planeur à l'autre bout du plateau ouvre donc une tête de pont.
-- **L'emballement** commence au round 16 : chaque round fait alors évoluer le plateau de deux générations. Le bandeau affiche `×2`.
-- **La victoire** revient au joueur dont l'adversaire n'a plus aucune cellule après une génération. Si les deux colonies s'éteignent en même temps, la partie est nulle. Au bout du round 40, la plus grosse population gagne, et une égalité donne un nul.
-
-Le bandeau du bas affiche la population de chaque joueur, ses poses restantes et le round en cours. La pastille du joueur qui a la main clignote.
+Le jeu tourne sur une vraie SNES ou dans un émulateur. Il se joue à deux sur la même console, ou seul contre un CPU à deux niveaux.
 
 ## Commandes
 
