@@ -171,11 +171,11 @@ static void test_une_partie_finie_est_gelee(void)
     T_FALSE(match_place(&m, 5, 5));
 }
 
-/* ---- fix round 1 : le masque de portée mis en cache dans Match ---- */
+/* ---- le masque de portée mis en cache dans Match ---- */
 
 /* Compare m.range_mask, cellule par cellule, à ce que rules_in_range()
    rendrait sur le même instantané/joueur : la garantie que begin_turn()
-   garde bien le masque à jour (perf review, docs/snes-notes.md § 8). */
+   garde bien le masque à jour. */
 static void check_range_mask_matches_in_range(void)
 {
     int x, y;

@@ -109,8 +109,7 @@ static void test_seed_place_le_bloc_du_joueur_1(void)
     T_EQ(board_get(&b, 7, 15), CELL_P1);
 }
 
-/* ---- fix round 1 : board_count() épinglé avant le hoist du pointeur de
-   ligne (perf review, docs/snes-notes.md § 8) ---- */
+/* ---- board_count() épinglé, contre un décompte indépendant ---- */
 
 /* xorshift32 propre à ce fichier, pour un plateau aléatoire reproductible
    (pas de rand()). */
@@ -160,8 +159,9 @@ static void test_count_sur_un_plateau_aleatoire_egale_un_comptage_independant(vo
     T_EQ(board_count(&b, CELL_P2), want2);
 }
 
-/* board_count_pair() : les deux comptes en un seul passage (fix round 1,
-   § c : évite les deux balayages séparés de view_hud()). */
+/* board_count_pair() : les deux comptes en un seul passage (évite les deux
+   balayages séparés que ferait view_hud() avec deux appels à
+   board_count()). */
 static void test_count_pair_egale_deux_appels_de_count(void)
 {
     static Board b;

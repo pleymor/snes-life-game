@@ -757,7 +757,7 @@ bool_t ai_step(AiJob *j, const Match *m, Rng *rng, int budget)
             continue;
 
         case AI_PH_GEN1:
-            /* collect_finish() et chaque ligne laissent `row` sur la
+            /* collect_finish() et chaque ligne laissent j->pos sur la
                prochaine ligne utile, ou BOARD_H : l'étape passe alors à la
                suivante sans rien coûter. */
             if (j->pos < BOARD_H) {

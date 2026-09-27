@@ -41,8 +41,7 @@ void rules_range_mask(const Board *b, Cell player, u8 mask[BOARD_H][BOARD_W])
     for (py = 0; py < BOARD_H; py++) {
         /* Pointeur de ligne hoisté hors de la boucle sur px : une seule
            multiplication (BSTRIDE) par ligne au lieu d'un board_get() (et
-           donc une multiplication) par case (fix round 1 — perf review,
-           docs/snes-notes.md § 8). */
+           donc une multiplication) par case. */
         const u8 *row = &b->c[py + 1][1];
         for (px = 0; px < BOARD_W; px++) {
             if (row[px] != (u8)player) {

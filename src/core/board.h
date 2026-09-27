@@ -28,8 +28,7 @@ int  board_count(const Board *b, Cell who);
 
 /* Les deux couleurs en un seul passage de BOARD_H*BOARD_W cases, plutôt que
    deux appels séparés à board_count() : évite un second balayage complet
-   du plateau là où les deux comptes sont utilisés ensemble (view_hud, fix
-   round 1 — perf review, docs/snes-notes.md § 8). */
+   du plateau là où les deux comptes sont utilisés ensemble (view_hud). */
 void board_count_pair(const Board *b, int *p1, int *p2);
 
 #endif

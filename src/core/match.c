@@ -56,7 +56,7 @@ bool_t match_place(Match *m, int x, int y)
     /* La portée se lit sur le masque figé au début du tour (begin_turn),
        pas recalculée ici : une cellule posée à l'instant ne doit pas
        étendre la zone de pose, et rules_in_range() par case serait le
-       même calcul refait pour rien (fix round 1). */
+       même calcul refait pour rien. */
     if (!m->range_mask[y][x]) return FALSE;
 
     board_set(&m->board, x, y, m->turn);

@@ -2,8 +2,8 @@
 #define CONFIG_H
 
 /* Les seuls réglages du jeu. Ne rien mettre d'autre ici, ne les définir
-   nulle part ailleurs. Valeurs figées par la tâche 7 sur les mesures de
-   tools/sim.c ; voir docs/balance.md pour le raisonnement. */
+   nulle part ailleurs. Valeurs confirmées par les mesures de tools/sim.c ;
+   voir docs/balance.md pour le raisonnement. */
 
 #define BOARD_W            32
 #define BOARD_H            24

@@ -18,9 +18,8 @@ void board_set(Board *b, int x, int y, Cell v)
 
 /* Un pointeur de ligne hoisté hors de la boucle sur x : une seule
    multiplication (l'adresse de la ligne, via BSTRIDE) par ligne, plus
-   aucune par case (fix round 1 — perf review, docs/snes-notes.md § 8 :
-   b->c[y][x] indexé directement multiplie par BSTRIDE=34 à chaque accès,
-   34 n'étant pas une puissance de deux). */
+   aucune par case (b->c[y][x] indexé directement multiplie par BSTRIDE=34
+   à chaque accès, 34 n'étant pas une puissance de deux). */
 int board_count(const Board *b, Cell who)
 {
     int x, y, n = 0;
