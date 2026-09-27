@@ -46,8 +46,14 @@ void view_hud(const Match *m, u8 out[HUD_W]);
    width <= 0. Rend le nombre de caractères de `s` écrits. */
 int view_text(const char *s, u8 *out, int width);
 
-/* Menu dessiné sur la zone de grille. `selected` va de 0 à 2 :
-   0 = deux joueurs, 1 = contre CPU facile, 2 = contre CPU normal. */
+/* Pose IMMIGRATION en lettres agrandies ×2 aux lignes 3-4, colonnes 5 à
+   26 de `out`. Ne touche à aucune autre case. */
+void view_title(u8 out[BOARD_H][BOARD_W]);
+
+/* Menu dessiné sur la zone de grille : vide la grille, pose le titre, puis
+   les trois modes aux lignes 10, 12 et 14 à partir de la colonne 10 :
+   "2 PLAYERS", "VS CPU  EASY", "VS CPU  HARD". `selected` (0 à 2) reçoit
+   un disque en colonne 8 ; hors de cet intervalle, aucun disque. */
 void view_menu(int selected, u8 out[BOARD_H][BOARD_W]);
 
 /* Bandeau de fin de partie : la couleur du vainqueur répétée au centre

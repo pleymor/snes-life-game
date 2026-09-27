@@ -101,27 +101,93 @@ static void test_le_marqueur_demballement_napparait_qua_partir_du_round_16(void)
     T_EQ(hud[21], TILE_DIGIT0 + TICKS_AFTER_RAMPUP);
 }
 
-static void test_le_menu_affiche_les_trois_modes(void)
+/* Tuile attendue pour la lettre k (ordre I M G R A T O N) et le quart q. */
+#define BIG(k, q) (TILE_BIG_BASE + 4 * (k) + (q))
+
+static const int title_k[11] = { 0, 1, 1, 0, 2, 3, 4, 5, 0, 6, 7 };   /* IMMIGRATION */
+
+static void check_title(void)
+{
+    int i;
+    for (i = 0; i < 11; i++) {
+        T_EQ(grid[3][5 + 2 * i],     BIG(title_k[i], 0));
+        T_EQ(grid[3][5 + 2 * i + 1], BIG(title_k[i], 1));
+        T_EQ(grid[4][5 + 2 * i],     BIG(title_k[i], 2));
+        T_EQ(grid[4][5 + 2 * i + 1], BIG(title_k[i], 3));
+    }
+}
+
+/* Vérifie un libellé à partir de la colonne 10 : lettre, chiffre ou vide. */
+static void check_label(int row, const char *s)
+{
+    int i;
+    for (i = 0; s[i] != '\0'; i++) {
+        if (s[i] >= 'A' && s[i] <= 'Z')
+            T_EQ(grid[row][10 + i], TILE_LETTER_A + (s[i] - 'A'));
+        else if (s[i] >= '0' && s[i] <= '9')
+            T_EQ(grid[row][10 + i], TILE_DIGIT0 + (s[i] - '0'));
+        else
+            T_EQ(grid[row][10 + i], TILE_EMPTY);
+    }
+}
+
+static void test_le_titre_s_ecrit_en_grand(void)
+{
+    int x, y;
+    for (y = 0; y < BOARD_H; y++)
+        for (x = 0; x < BOARD_W; x++)
+            grid[y][x] = TILE_EMPTY;
+    view_title(grid);
+    check_title();
+    T_EQ(grid[3][4], TILE_EMPTY);
+    T_EQ(grid[3][27], TILE_EMPTY);
+    T_EQ(grid[2][10], TILE_EMPTY);
+    T_EQ(grid[5][10], TILE_EMPTY);
+}
+
+static void test_le_menu_affiche_titre_et_modes(void)
 {
     view_menu(0, grid);
-    T_EQ(grid[10][12], TILE_DIGIT0 + 2);   /* 2P */
-    T_EQ(grid[10][13], TILE_P);
-    T_EQ(grid[12][12], TILE_DIGIT0 + 1);   /* 1P x1 */
-    T_EQ(grid[12][13], TILE_P);
-    T_EQ(grid[12][14], TILE_TIMES);
-    T_EQ(grid[12][15], TILE_DIGIT0 + 1);
-    T_EQ(grid[14][15], TILE_DIGIT0 + 2);   /* 1P x2 */
-    T_EQ(grid[0][0], TILE_EMPTY);
+    check_title();
+    check_label(10, "2 PLAYERS");
+    check_label(12, "VS CPU  EASY");
+    check_label(14, "VS CPU  HARD");
 }
 
 static void test_le_menu_marque_la_ligne_choisie(void)
 {
     view_menu(0, grid);
-    T_EQ(grid[10][10], TILE_PIP_ON);
-    T_EQ(grid[12][10], TILE_EMPTY);
+    T_EQ(grid[10][8], TILE_PIP_ON);
+    T_EQ(grid[12][8], TILE_EMPTY);
+    T_EQ(grid[14][8], TILE_EMPTY);
     view_menu(2, grid);
-    T_EQ(grid[10][10], TILE_EMPTY);
-    T_EQ(grid[14][10], TILE_PIP_ON);
+    T_EQ(grid[10][8], TILE_EMPTY);
+    T_EQ(grid[14][8], TILE_PIP_ON);
+}
+
+static void test_le_menu_hors_bornes_n_a_pas_de_disque(void)
+{
+    view_menu(-1, grid);
+    T_EQ(grid[10][8], TILE_EMPTY);
+    T_EQ(grid[12][8], TILE_EMPTY);
+    T_EQ(grid[14][8], TILE_EMPTY);
+    check_label(12, "VS CPU  EASY");
+    view_menu(3, grid);
+    T_EQ(grid[14][8], TILE_EMPTY);
+}
+
+static void test_le_menu_ne_dessine_rien_d_autre(void)
+{
+    int x, y, n = 0;
+    for (y = 0; y < BOARD_H; y++)
+        for (x = 0; x < BOARD_W; x++)
+            grid[y][x] = 0x55;                      /* RAM non remise à zéro */
+    view_menu(1, grid);
+    for (y = 0; y < BOARD_H; y++)
+        for (x = 0; x < BOARD_W; x++)
+            if (grid[y][x] != TILE_EMPTY) n++;
+    /* 44 tuiles de titre + 1 disque + 8 + 9 + 9 caractères non blancs */
+    T_EQ(n, 44 + 1 + 8 + 9 + 9);
 }
 
 static void test_le_bandeau_de_fin_montre_le_vainqueur(void)
@@ -225,12 +291,15 @@ void suite_view(void)
     T_RUN(test_le_bandeau_montre_populations_round_et_pastilles);
     T_RUN(test_les_poses_restantes_se_vident);
     T_RUN(test_le_marqueur_demballement_napparait_qua_partir_du_round_16);
-    T_RUN(test_le_menu_affiche_les_trois_modes);
-    T_RUN(test_le_menu_marque_la_ligne_choisie);
     T_RUN(test_le_bandeau_de_fin_montre_le_vainqueur);
     T_RUN(test_le_bandeau_de_fin_montre_les_populations_finales);
     T_RUN(test_le_texte_devient_des_tuiles);
     T_RUN(test_les_caracteres_inconnus_sont_vides);
     T_RUN(test_le_texte_est_tronque_a_la_largeur);
     T_RUN(test_une_largeur_nulle_n_ecrit_rien);
+    T_RUN(test_le_titre_s_ecrit_en_grand);
+    T_RUN(test_le_menu_affiche_titre_et_modes);
+    T_RUN(test_le_menu_marque_la_ligne_choisie);
+    T_RUN(test_le_menu_hors_bornes_n_a_pas_de_disque);
+    T_RUN(test_le_menu_ne_dessine_rien_d_autre);
 }

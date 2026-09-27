@@ -107,11 +107,25 @@ int view_text(const char *s, u8 *out, int width)
     return n;
 }
 
-/* Lignes de tuile des trois choix du menu (deux joueurs, CPU facile, CPU
-   normal). Portée fichier, à une dimension : va en ROM (.rodata), pas dans
-   globram.data (docs/snes-notes.md § 10 — un `static const` local à une
-   fonction, comme cette table l'était avant, y serait allé à la place). */
+/* Tables à une dimension et de portée fichier : elles restent en ROM
+   (docs/snes-notes.md § 10). */
 static const u8 menu_rows[3] = { 10, 12, 14 };
+/* IMMIGRATION : rang de chaque lettre dans l'ordre I M G R A T O N des
+   lettres agrandies de la planche. */
+static const u8 title_letters[11] = { 0, 1, 1, 0, 2, 3, 4, 5, 0, 6, 7 };
+
+void view_title(u8 out[BOARD_H][BOARD_W])
+{
+    int i;
+    for (i = 0; i < 11; i++) {
+        u8 t = (u8)(TILE_BIG_BASE + 4 * title_letters[i]);
+        int x = 5 + 2 * i;
+        out[3][x]     = t;
+        out[3][x + 1] = (u8)(t + 1);
+        out[4][x]     = (u8)(t + 2);
+        out[4][x + 1] = (u8)(t + 3);
+    }
+}
 
 void view_menu(int selected, u8 out[BOARD_H][BOARD_W])
 {
@@ -122,15 +136,12 @@ void view_menu(int selected, u8 out[BOARD_H][BOARD_W])
             out[y][x] = TILE_EMPTY;
         }
     }
+    view_title(out);
+    view_text("2 PLAYERS",    &out[menu_rows[0]][10], BOARD_W - 10);
+    view_text("VS CPU  EASY", &out[menu_rows[1]][10], BOARD_W - 10);
+    view_text("VS CPU  HARD", &out[menu_rows[2]][10], BOARD_W - 10);
     for (i = 0; i < 3; i++) {
-        u8 r = menu_rows[i];
-        out[r][10] = (u8)((i == selected) ? TILE_PIP_ON : TILE_EMPTY);
-        out[r][12] = (u8)(TILE_DIGIT0 + (i == 0 ? 2 : 1));
-        out[r][13] = TILE_P;
-        if (i > 0) {
-            out[r][14] = TILE_TIMES;
-            out[r][15] = (u8)(TILE_DIGIT0 + i);   /* 1 facile, 2 normal */
-        }
+        out[menu_rows[i]][8] = (u8)((i == selected) ? TILE_PIP_ON : TILE_EMPTY);
     }
 }
 
