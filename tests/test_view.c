@@ -152,6 +152,7 @@ static void test_le_menu_affiche_titre_et_modes(void)
     check_label(10, "2 PLAYERS");
     check_label(12, "VS CPU  EASY");
     check_label(14, "VS CPU  HARD");
+    check_label(16, "HOW TO PLAY");
 }
 
 static void test_le_menu_marque_la_ligne_choisie(void)
@@ -163,6 +164,9 @@ static void test_le_menu_marque_la_ligne_choisie(void)
     view_menu(2, grid);
     T_EQ(grid[10][8], TILE_EMPTY);
     T_EQ(grid[14][8], TILE_PIP_ON);
+    view_menu(3, grid);
+    T_EQ(grid[14][8], TILE_EMPTY);
+    T_EQ(grid[16][8], TILE_PIP_ON);
 }
 
 static void test_le_menu_hors_bornes_n_a_pas_de_disque(void)
@@ -172,8 +176,8 @@ static void test_le_menu_hors_bornes_n_a_pas_de_disque(void)
     T_EQ(grid[12][8], TILE_EMPTY);
     T_EQ(grid[14][8], TILE_EMPTY);
     check_label(12, "VS CPU  EASY");
-    view_menu(3, grid);
-    T_EQ(grid[14][8], TILE_EMPTY);
+    view_menu(4, grid);
+    T_EQ(grid[16][8], TILE_EMPTY);
 }
 
 static void test_le_menu_ne_dessine_rien_d_autre(void)
@@ -186,8 +190,8 @@ static void test_le_menu_ne_dessine_rien_d_autre(void)
     for (y = 0; y < BOARD_H; y++)
         for (x = 0; x < BOARD_W; x++)
             if (grid[y][x] != TILE_EMPTY) n++;
-    /* 44 tuiles de titre + 1 disque + 8 + 9 + 9 caractères non blancs */
-    T_EQ(n, 44 + 1 + 8 + 9 + 9);
+    /* 44 tuiles de titre + 1 disque + 8 + 9 + 9 + 9 (HOWTOPLAY) caractères non blancs */
+    T_EQ(n, 44 + 1 + 8 + 9 + 9 + 9);
 }
 
 static void test_le_bandeau_de_fin_montre_le_vainqueur(void)

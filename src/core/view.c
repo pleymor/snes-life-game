@@ -110,7 +110,7 @@ int view_text(const char *s, u8 *out, int width)
 
 /* Tables à une dimension et de portée fichier : elles restent en ROM
    (docs/snes-notes.md § 10). */
-static const u8 menu_rows[3] = { 10, 12, 14 };
+static const u8 menu_rows[4] = { 10, 12, 14, 16 };
 /* IMMIGRATION : rang de chaque lettre dans l'ordre I M G R A T O N des
    lettres agrandies de la planche. */
 static const u8 title_letters[11] = { 0, 1, 1, 0, 2, 3, 4, 5, 0, 6, 7 };
@@ -141,7 +141,8 @@ void view_menu(int selected, u8 out[BOARD_H][BOARD_W])
     view_text("2 PLAYERS",    &out[menu_rows[0]][10], BOARD_W - 10);
     view_text("VS CPU  EASY", &out[menu_rows[1]][10], BOARD_W - 10);
     view_text("VS CPU  HARD", &out[menu_rows[2]][10], BOARD_W - 10);
-    for (i = 0; i < 3; i++) {
+    view_text("HOW TO PLAY",  &out[menu_rows[3]][10], BOARD_W - 10);
+    for (i = 0; i < 4; i++) {
         out[menu_rows[i]][8] = (u8)((i == selected) ? TILE_PIP_ON : TILE_EMPTY);
     }
 }

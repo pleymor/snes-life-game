@@ -52,9 +52,10 @@ int view_text(const char *s, u8 *out, int width);
 void view_title(u8 out[BOARD_H][BOARD_W]);
 
 /* Menu dessiné sur la zone de grille : vide la grille, pose le titre, puis
-   les trois modes aux lignes 10, 12 et 14 à partir de la colonne 10 :
-   "2 PLAYERS", "VS CPU  EASY", "VS CPU  HARD". `selected` (0 à 2) reçoit
-   un disque en colonne 8 ; hors de cet intervalle, aucun disque. */
+   quatre entrées aux lignes 10, 12, 14 et 16 à partir de la colonne 10 :
+   "2 PLAYERS", "VS CPU  EASY", "VS CPU  HARD", "HOW TO PLAY". `selected`
+   (0 à 3) reçoit un disque en colonne 8 ; hors de cet intervalle, aucun
+   disque. */
 void view_menu(int selected, u8 out[BOARD_H][BOARD_W]);
 
 /* Bandeau de fin de partie : la couleur du vainqueur répétée au centre

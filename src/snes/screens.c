@@ -54,7 +54,7 @@ int screen_menu(unsigned int *frames)
         unsigned short hit = input_edges((unsigned short *)0);
 
         if ((hit & KEY_UP) && selected > 0)   { selected--; dirty = TRUE; }
-        if ((hit & KEY_DOWN) && selected < 2) { selected++; dirty = TRUE; }
+        if ((hit & KEY_DOWN) && selected < 3) { selected++; dirty = TRUE; }
 
         if (dirty) {
             view_menu(selected, grid);
@@ -70,6 +70,7 @@ int screen_menu(unsigned int *frames)
         if (hit & (KEY_A | KEY_START)) {
             *frames = frame;
             if (selected == 0) return -1;
+            if (selected == 3) return MENU_TUTORIAL;
             return (selected == 1) ? (int)AI_EASY : (int)AI_NORMAL;
         }
     }

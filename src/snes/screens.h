@@ -3,7 +3,11 @@
 
 #include "match.h"
 
-/* Bloque jusqu'au choix. Rend -1 pour deux joueurs, AI_EASY ou AI_NORMAL.
+/* Valeur rendue par screen_menu() pour l'entrée HOW TO PLAY. */
+#define MENU_TUTORIAL (-2)
+
+/* Bloque jusqu'au choix. Rend -1 pour deux joueurs, AI_EASY, AI_NORMAL ou
+   MENU_TUTORIAL.
    Écrit dans `*frames` le nombre d'itérations de sa propre boucle avant ce
    choix : main.c s'en sert pour semer le xorshift32 de l'IA facile avec une
    valeur qui varie d'une partie à l'autre (mais reste déterministe pour une
