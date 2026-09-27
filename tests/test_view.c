@@ -281,6 +281,14 @@ static void test_une_largeur_nulle_n_ecrit_rien(void)
     T_EQ(line[0], 0x55);
 }
 
+static void test_la_virgule_a_sa_tuile(void)
+{
+    view_text("A,B", line, 3);
+    T_EQ(line[0], TILE_LETTER_A);
+    T_EQ(line[1], TILE_COMMA);
+    T_EQ(line[2], TILE_LETTER_A + 1);
+}
+
 void suite_view(void)
 {
     T_RUN(test_les_cellules_prennent_la_tuile_de_leur_couleur);
@@ -297,6 +305,7 @@ void suite_view(void)
     T_RUN(test_les_caracteres_inconnus_sont_vides);
     T_RUN(test_le_texte_est_tronque_a_la_largeur);
     T_RUN(test_une_largeur_nulle_n_ecrit_rien);
+    T_RUN(test_la_virgule_a_sa_tuile);
     T_RUN(test_le_titre_s_ecrit_en_grand);
     T_RUN(test_le_menu_affiche_titre_et_modes);
     T_RUN(test_le_menu_marque_la_ligne_choisie);

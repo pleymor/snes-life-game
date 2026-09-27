@@ -88,6 +88,7 @@ static u8 text_tile(char c)
     case '?':  return TILE_QUEST;
     case ':':  return TILE_COLON;
     case '\'': return TILE_APOS;
+    case ',':  return TILE_COMMA;
     default:   return TILE_EMPTY;
     }
 }

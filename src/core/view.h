@@ -22,6 +22,7 @@
 #define TILE_COLON    50
 #define TILE_APOS     51
 #define TILE_BIG_BASE 52   /* 52 à 83 : lettres du titre agrandies ×2 */
+#define TILE_COMMA    84
 
 #define HUD_W 32          /* le bandeau fait une seule ligne de tuiles */
 
@@ -39,7 +40,7 @@ void view_digits3(int value, u8 out[3]);
 void view_hud(const Match *m, u8 out[HUD_W]);
 
 /* Écrit la chaîne `s` en indices de tuiles dans out[0..width-1].
-   'A'..'Z' donnent les lettres, '0'..'9' les chiffres, - . ! ? : ' leurs
+   'A'..'Z' donnent les lettres, '0'..'9' les chiffres, - . ! ? : ' , leurs
    signes ; tout autre caractère (espace et minuscules compris) donne
    TILE_EMPTY. Les cases au-delà de la chaîne sont mises à TILE_EMPTY ; une
    chaîne plus longue que `width` est tronquée. Rien n'est écrit si
