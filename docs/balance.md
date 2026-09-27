@@ -1,4 +1,4 @@
-# Réglage de l'équilibrage (tâche 7)
+# Réglage de l'équilibrage
 
 Mesures produites par `tools/sim.c` (`./build/sim <parties> <graine> [niveau]`),
 utilisées pour figer `src/core/config.h`.
@@ -59,7 +59,7 @@ dix secondes attendues à l'étape 3).
 | 3            | 0 %         | 0 %  | 100 % | 0 | 40.0 | 74  |
 
 Ces onze réglages sont exactement à égalité entre eux sur les trois
-critères du brief (0 % d'élimination partout, un split 100/0 partout — P2
+critères de décision retenus (0 % d'élimination partout, un split 100/0 partout — P2
 sauf à RAMPUP=20 — et un round moyen toujours à 40.0). Le mode `normal`
 seul ne peut donc pas trancher entre réglages : il montre juste qu'une
 seule partie de référence, jouée par une IA gloutonne déterministe des
@@ -70,7 +70,7 @@ deux côtés, ne suffit à rien départager. D'où les modes `easy` et `mixed`.
 `AI_EASY` lit `rng` (tirage parmi les trois meilleurs coups, § `ai.c`),
 donc `easy` (les deux camps en `AI_EASY`) produit 200 parties réellement
 différentes par run, avec de la variance mesurable — c'est la mesure
-statistique que le brief attendait.
+statistique recherchée.
 
 ### Référence aux réglages de la spec, deux graines (stabilité)
 
@@ -180,7 +180,7 @@ Deux observations utiles :
   l'intention de la spec (l'emballement est censé précipiter une décision)
   mais reste très loin de 50 % même dans le meilleur cas mesuré.
 
-## Application des critères du brief
+## Application des critères de décision
 
 **Règle de décision retenue** : ne s'écarter d'une valeur de la spec que
 si les mesures favorisent clairement une autre valeur sur le critère 1
@@ -199,12 +199,12 @@ d'élimination observé est 10 %** (`mixed`, RAMPUP_ROUND=8) — loin des
 | `BUDGET` | 3 | **3** | Aucune valeur testée (2, 3, 4) n'approche 50 % d'élimination en `easy` ; les écarts entre elles sont de l'ordre du bruit d'échantillonnage (comparé aux deux graines de la mesure de stabilité). Rien ne favorise clairement 2 ou 4 sur le critère 1 : la spec l'emporte. |
 | `RANGE_RADIUS` | 2 | **2** | Même constat : 1, 2 et 3 restent tous sous 2 % d'élimination en `easy`. |
 | `RAMPUP_ROUND` | 16 | **16** | C'est le réglage où un effet réel existe (`mixed` : 1 % à 40, 10 % à 8), mais même le meilleur cas (8) reste à 10 %, très loin du seuil de 50 % qui déclencherait un changement. La spec l'emporte par défaut de la règle de décision. |
-| `TICKS_AFTER_RAMPUP`, `ROUND_CAP` | 2, 40 | inchangés | Hors balayage du brief. |
+| `TICKS_AFTER_RAMPUP`, `ROUND_CAP` | 2, 40 | inchangés | Hors du balayage de ce réglage. |
 
-`src/core/config.h` reste donc identique à son état d'avant la tâche 7,
-à l'exception du commentaire d'en-tête (qui documente que la tâche 7 a
-mesuré et confirmé ces valeurs plutôt que de les avoir choisies au
-hasard). Aucun test câblé sur `BUDGET`, `RANGE_RADIUS` ou leurs
+`src/core/config.h` reste donc identique à son état antérieur, à
+l'exception du commentaire d'en-tête (qui documente que ces valeurs ont
+été mesurées et confirmées plutôt que choisies au hasard). Aucun test
+câblé sur `BUDGET`, `RANGE_RADIUS` ou leurs
 coordonnées dérivées n'a donc eu besoin d'être retouché : `make test`
 passe sans aucune modification des suites de tests.
 
@@ -213,9 +213,9 @@ passe sans aucune modification des suites de tests.
 Même dans la meilleure configuration mesurée, l'élimination reste rare
 (10 % au mieux, en `mixed` avec un emballement précoce). C'est un écart
 réel à l'intention de la spec (« l'élimination arrive-t-elle vraiment ? »)
-que cette tâche ne peut pas corriger en réglant seulement `config.h` — les
+qu'un simple réglage de `config.h` ne peut pas corriger — les
 leviers disponibles (portée, budget, timing de l'emballement) ont chacun
-été mesurés sur toute leur plage prévue par le brief sans jamais
+été mesurés sur toute leur plage prévue sans jamais
 s'approcher de 50 %. Trois points, **non tranchés, à arbitrer par un
 humain** :
 
@@ -235,16 +235,16 @@ humain** :
   dehors même de la question de l'élimination : 66 % contre 33 % en
   `easy` (stable sur deux graines), hors de la bande 60/40 du critère 2 —
   voir le détail par réglage plus haut. Le critère 1 n'étant satisfait par
-  aucun réglage, ce déséquilibre n'a pas pesé sur la décision de cette
-  tâche, mais il reste réel et pourrait valoir la peine d'être creusé pour
+  aucun réglage, ce déséquilibre n'a pas pesé sur la décision ci-dessus,
+  mais il reste réel et pourrait valoir la peine d'être creusé pour
   lui-même (biais de l'IA en faveur du second joueur ? de la position de
   départ ?).
 
 Si l'élimination doit devenir le mode de décision courant plutôt que rare,
 la piste la plus prometteuse d'après ces mesures est `RAMPUP_ROUND` (seul
 réglage à montrer un effet net), combinée à une révision du comportement
-de l'IA ou de la position de départ — hors périmètre d'une tâche de
-réglage de `config.h`.
+de l'IA ou de la position de départ — hors périmètre d'un simple réglage
+de `config.h`.
 
 ## Vérification
 

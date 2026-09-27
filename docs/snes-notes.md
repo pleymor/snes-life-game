@@ -123,17 +123,20 @@ opposed to the ~120-180 tried first) also clears RetroArch's own "content
 loaded" on-screen notification banner, which otherwise sits across the
 middle of the captured frame for its first few seconds.
 
-Verified: `screenshot.png` from the command above shows this spike's exact
-32x24 checkerboard tilemap (built by `fillTilemap()` in `src/snes/main.c`)
-and the red sprite square at (100,100), with a plain, non-technical
-resolution — this is a real, actionable answer, not a partial one.
+Verified: `screenshot.png` from the command above shows this early spike's
+exact 32x24 checkerboard tilemap and the red sprite square at (100,100),
+with a plain, non-technical resolution — this is a real, actionable
+answer, not a partial one. (That checkerboard-filling code no longer
+exists — `src/snes/main.c` now draws the real board — but the capture
+method itself is unchanged and still what every screenshot check in this
+project uses.)
 
-**Consequence for tasks 7-12**: automated screenshot verification is
-available and is the RetroArch recipe above (swap the `.sfc` path and, if a
-task cares about a specific frame, tune `--max-frames`). It does not need a
-human at a screen. Prefer this over the GUI Snes9x install for anything that
-needs to run unattended (CI, agent-driven verification); keep Snes9x around
-only for a human to sanity-check something interactively.
+**Consequence**: automated screenshot verification is available and is the
+RetroArch recipe above (swap the `.sfc` path and tune `--max-frames` for the
+frame a given check cares about). It does not need a human at a screen.
+Prefer this over the GUI Snes9x install for anything that needs to run
+unattended verification (CI, headless checks); keep Snes9x around only for
+a human to sanity-check something interactively.
 
 **Foreground launches can hang forever and ignore `SIGALRM` (task 10:
 several runs hung on this)**: running the RetroArch command above directly
@@ -1011,13 +1014,17 @@ $00841C,X / STA.l $7F0000,X / INX / INX / CPX #$001B / BCC` copies the 27
 bytes of `glob.data` (00:841C) to `globram.data` (7F:0000), and those ROM
 bytes held the expected values (`cpu_level` 1, `hud_dirty` 1, the board
 seed table...). The game code no longer depends on it anyway: every
-mutable static is set explicitly, and `globram.data` is now empty in all
-three ROMs.
+mutable static is set explicitly, and `globram.data` is empty in all three
+ROMs.
 
 **Where tables go.** A file-scope `static const` one-dimensional array
 goes to ROM (`.rodata`). A two-dimensional one, or a `static const` local
 to a function, goes to `globram.data`, that is RAM filled by the copy
-above. The board seed table is a flat file-scope array for that reason.
+above. The board seed table (`src/core/board.c`) and the menu's row table
+(`src/core/view.c`) are both flat file-scope arrays for that reason —
+`view_menu()`'s row table used to be local to the function, which would
+have put it in `globram.data`; it was moved to file scope to keep the
+claim above true.
 
 **`long` is 16 bits.** 816-tcc gives `sizeof(long) == 2` (and
 `sizeof(int) == 2`); there is no 32-bit integer type. The plan's global
