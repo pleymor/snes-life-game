@@ -1,9 +1,7 @@
 /*---------------------------------------------------------------------------------
 
-    Task 0 spike, extended by task 8 (board on BG1), task 9 (HUD on BG2,
-    cursor sprite), task 10 (controls, two-player game loop), task 11 (CPU
-    turns) and task 12 (mode menu, result screen): the game now boots to a
-    menu, plays, shows the result, and returns to the menu, forever.
+    The game boots to a menu, plays, shows the result, and returns to the
+    menu, forever.
 
     render_init()/render_board_now()/render_hud_now()/render_cursor()
     (src/snes/render.c) own every PVSnesLib call this file used to make
@@ -20,7 +18,9 @@
     exactly prepare -> WaitForVBlank() -> render_vblank(), never more than
     one wait per frame.
 
-    Do not rewrite this file wholesale in later tasks: extend it.
+    Extend this file rather than restructuring it wholesale: the state
+    machine, snapshot-based dirty detection and VBlank discipline above are
+    load-bearing for every screen this loop drives.
 
 ---------------------------------------------------------------------------------*/
 #include <snes.h>
@@ -30,9 +30,18 @@
 #include "screens.h"
 #include "ai.h"
 
-typedef enum { GS_TURN, GS_RESOLVE, GS_OVER } GameState;
+typedef enum { GS_TURN, GS_CPU_SHOW, GS_RESOLVE, GS_OVER } GameState;
 
 #define RESOLVE_HOLD 45   /* frames de pause pour voir le résultat du tick */
+
+/* Frames de pause entre la pose du CPU sur le plateau de travail et
+   match_end_turn() : spec § 2.3, "les cellules posées apparaissent
+   immédiatement à l'écran, avant le tick" — vrai pour un joueur humain
+   (rendu dès la frame de la pose), mais pas pour le CPU sans cet état, qui
+   sinon posait et tickait dans la même itération de boucle, sans qu'aucune
+   image n'affiche jamais les cellules posées avant leur tick. Même ordre
+   de grandeur que RESOLVE_HOLD, pour la même lisibilité. */
+#define CPU_SHOW_HOLD 40
 
 /* A Board is 884 bytes; Match holds two of them. The SNES stack is tiny, so
    this — and Cursor, trivially small but kept alongside for the same
@@ -86,13 +95,15 @@ static unsigned int meas_shown_iters;
 #endif
 
 /* The small piece of visible state that decides whether the board/HUD need
-   rebuilding this frame (task 10 ruling): m.turn, m.round, m.placed,
-   m.winner, cur.show_range, and the game state itself (GS_RESOLVE hides the
-   board's range marks; returning to GS_TURN shows them again, so the state
-   value belongs in the comparison too). Cursor position is deliberately
+   rebuilding this frame: m.turn, m.round, m.placed, m.winner,
+   cur.show_range, and the game state itself (GS_RESOLVE and GS_CPU_SHOW
+   hide the board's range marks; returning to GS_TURN shows them again, so
+   the state value belongs in the comparison too — it is also what makes
+   the CPU's placement show up the instant it happens, since entering
+   GS_CPU_SHOW alone flips this snapshot). Cursor position is deliberately
    excluded: render_cursor() runs unconditionally every frame regardless of
-   board_dirty, and the range marks it might overlap do not depend on where
-   the cursor sits. */
+   `dirty`, and the range marks it might overlap do not depend on where the
+   cursor sits. */
 typedef struct {
     Cell      turn;
     int       round;
@@ -139,33 +150,34 @@ int main(void)
 
     for (;;) {
         GameState state = GS_TURN;
-        /* unsigned : a plain (signed) `int` would overflow undefined
-           behaviour past 32767 on the 16-bit `int` of the 65816 target
-           (fix round 1, task 8 review finding — carried over here). */
-        unsigned int frame = 0;
         int hold = 0;
         /* Forces the very first frame of every game to be seen as
            "changed": render.c's own map_bg1/map_bg2 buffers still hold
            whatever screen_menu()/screen_result() last put there, which the
            snapshot comparison below would otherwise never call
            render_board_now()/render_hud_dirty() to replace before some
-           visible match state actually changes (task 12 ruling: no
-           leftover from the previous game). `state`, `frame` and `hold`
-           above are automatic locals re-initialised by this same
-           declaration every time this outer loop runs, for the same
-           reason. */
+           visible match state actually changes — nothing from the previous
+           game should linger on screen. `state` and `hold` above are
+           automatic locals re-initialised by this same declaration every
+           time this outer loop runs, for the same reason. */
         bool_t started = FALSE;
+        /* Nombre d'itérations passées dans screen_menu() avant que le mode
+           ne soit choisi (voir ci-dessous). */
+        unsigned int menu_frames;
 
         /* cpu_level, m, cur et job (via cpu_thinking) sont remis à neuf à
            chaque partie, explicitement : la RAM de la console n'est pas
            remise à zéro au démarrage (docs/snes-notes.md § 10), et rien
            ici ne doit garder l'état de la partie précédente. */
-        cpu_level = screen_menu();
-        /* Graine 0x2545F491, en deux moitiés : `long` ne fait que 16 bits
-           sur la console (docs/snes-notes.md § 10). Reposée à chaque
-           partie : une IA facile déterministe et reproductible d'une
-           partie à l'autre, pas seulement à l'intérieur d'une partie. */
-        rng_seed(&rng, 0x2545U, 0xF491U);
+        cpu_level = screen_menu(&menu_frames);
+        /* Graine explicite et reproductible pour une même chronologie
+           d'entrées, mais qui varie d'une partie à l'autre avec le temps
+           passé sur le menu (menu_frames) plutôt qu'une constante fixe : la
+           moitié haute reste non nulle quel que soit menu_frames, donc la
+           graine ne peut jamais être (0, 0). `long` ne fait que 16 bits sur
+           la console (docs/snes-notes.md § 10), d'où les deux moitiés
+           explicites. */
+        rng_seed(&rng, 0x2545U, (unsigned short)(0xF491U + menu_frames));
         cpu_thinking = FALSE;
 #ifdef AI_MEASURE_FRAMES
         meas_start = 0;
@@ -213,17 +225,22 @@ int main(void)
                         meas_last_iters = meas_iters;
 #endif
                         for (i = 0; i < job.made; i++) {
+                            /* Le retour de match_place() n'est pas testé :
+                               ai_choose()/ai_step() ne rendent que des
+                               coups légaux (couverts par tests/test_ai.c),
+                               donc l'échec ne peut pas arriver ici. */
                             match_place(&m, (int)job.out[i].x, (int)job.out[i].y);
                         }
                         cpu_thinking = FALSE;
-                        ticked = TRUE;
-                        match_end_turn(&m);
-                        if (match_winner(&m) != WINNER_NONE) {
-                            state = GS_OVER;
-                        } else {
-                            state = GS_RESOLVE;
-                            hold = RESOLVE_HOLD;
-                        }
+                        /* Ni GS_RESOLVE ni GS_OVER tout de suite : spec § 2.3,
+                           les cellules posées apparaissent à l'écran avant
+                           le tick. GS_CPU_SHOW laisse le plateau affiché
+                           avec ces poses, sans tick, le temps de
+                           CPU_SHOW_HOLD images ; match_end_turn() et le
+                           flux RESOLVE/OVER habituel reprennent une fois ce
+                           délai écoulé (voir plus bas, "state == GS_CPU_SHOW"). */
+                        state = GS_CPU_SHOW;
+                        hold = CPU_SHOW_HOLD;
                     }
                 } else if (input_update(&cur, &m)) {
                     /* Un tick n'a lieu qu'à la fin du tour du second
@@ -233,6 +250,16 @@ int main(void)
                     if (match_winner(&m) != WINNER_NONE) {
                         state = GS_OVER;
                     } else if (ticked) {
+                        state = GS_RESOLVE;
+                        hold = RESOLVE_HOLD;
+                    }
+                }
+            } else if (state == GS_CPU_SHOW) {
+                if (--hold <= 0) {
+                    match_end_turn(&m);
+                    if (match_winner(&m) != WINNER_NONE) {
+                        state = GS_OVER;
+                    } else {
                         state = GS_RESOLVE;
                         hold = RESOLVE_HOLD;
                     }
@@ -254,7 +281,14 @@ int main(void)
                 render_board_now(&m, (bool_t)(state == GS_TURN && cur.show_range));
                 render_hud_dirty();
             }
-            render_hud_now(&m, (bool_t)((frame & 16) != 0));
+            /* Clignotement à 2 Hz (spec § 4) : bascule toutes les 15
+               images réelles (snes_vblank_count, incrémenté par le
+               gestionnaire NMI de PVSnesLib), pas toutes les 15 itérations
+               de cette boucle — une itération peut couvrir plusieurs
+               images réelles quand le calcul qui la précède (rendu,
+               réflexion du CPU) déborde d'une trame, ce que ne verrait pas
+               un compteur qui avance d'un par itération. */
+            render_hud_now(&m, (bool_t)((((unsigned int)(u16)snes_vblank_count / 15) & 1U) == 0U));
 #ifdef AI_MEASURE_FRAMES
             /* Seulement quand le bandeau vient d'être reconstruit (il
                efface ces chiffres) ou qu'une valeur a changé : les
@@ -268,12 +302,13 @@ int main(void)
                 meas_shown_iters = meas_last_iters;
             }
 #endif
-            /* Curseur masqué pendant que le CPU réfléchit (task 11) : sa
-               position resterait celle du dernier tour humain, sans
-               rapport avec le tour du CPU en cours. */
+            /* Curseur masqué pendant que le CPU réfléchit et pendant
+               GS_CPU_SHOW (déjà couvert par `state == GS_TURN` ci-dessus,
+               puisque ni l'un ni l'autre n'est GS_TURN) : sa position
+               resterait celle du dernier tour humain, sans rapport avec le
+               tour du CPU en cours. */
             render_cursor(cur.x, cur.y, (bool_t)(state == GS_TURN && !cpu_thinking));
 
-            frame++;
             WaitForVBlank();
             render_vblank();
         }
