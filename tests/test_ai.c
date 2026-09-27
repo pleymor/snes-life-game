@@ -181,6 +181,66 @@ static void test_lia_referme_le_bloc_plutot_que_le_clignotant(void)
     T_EQ(mv[0].y, 9);
 }
 
+/* Spec § 7.1 : l'IA préfère un coup qui détruit des cellules adverses à un
+   coup neutre, sur un plateau construit pour.
+
+   Bloc rouge 2x2 (immortel s'il n'est pas dérangé) en (10,10) (11,10)
+   (10,11) (11,11). Le pion bleu isolé en (7,10) (distance de Chebyshev 2 de
+   (9,10), donc à portée sans être un voisin de jeu de la vie) rend légale
+   la pose en (9,10), qui touche en diagonale (10,10) et (10,11) : ces deux
+   coins passent de 3 à 4 voisins et meurent de surpopulation au tick
+   suivant ; (9,10) lui-même n'a que 2 voisins ((10,10) et (10,11), comptés
+   avant leur propre mort) et survit. Sans la pose, le bloc est stable
+   indéfiniment. Au tick suivant (profondeur 1) : +1 pour moi (la pose
+   survit, 0 sans elle) et -2 pour l'adversaire (2 morts au lieu de 0),
+   score net +3. À la profondeur 2 (niveau normal) : les deux coins
+   restants perdent à leur tour tous leurs voisins (la pose et les deux
+   coins morts n'en soutiennent plus aucun) et meurent aussi, contre un
+   bloc toujours intact sans la pose — score net +4. Positif aux deux
+   profondeurs : un coup qui détruit des cellules adverses.
+
+   Ailleurs, un second pion bleu isolé en (25,5) rend légale la pose
+   voisine en (26,5) (un seul voisin : ce pion), qui vaut un coup neutre :
+   la paire qu'ils forment est isolée (1 voisin chacun) et meurt entière au
+   tick suivant, exactement comme le pion seul serait déjà mort sans la
+   pose — score net 0, à toute profondeur.
+
+   D'autres candidats existent près du bloc ((9,9) et (9,12), qui ne
+   touchent qu'un seul coin) : à la profondeur 2, le coin manquant renaît
+   au tick suivant (les trois coins restants lui donnent exactement 3
+   voisins), donc leur score y retombe à 0 — le bloc se répare de
+   lui-même. Le candidat (9,11), symétrique de (9,10), est à égalité de
+   score avec lui aux deux profondeurs ; le départage par ordre de balayage
+   (y croissant puis x) désigne (9,10) en premier (y=10 < y=11).
+
+   Vérifié pour le niveau normal (déterministe). Le niveau facile tire au
+   hasard parmi les trois meilleurs coups (spec § 6.2) : sans autre
+   candidat à score strictement inférieur à celui du meilleur, il n'y a
+   aucune garantie qu'il tire précisément le coup destructeur, donc ce
+   niveau n'est pas testable ici de façon déterministe. */
+static void test_lia_prefere_detruire_a_un_coup_neutre(void)
+{
+    Rng rng;
+    int n;
+    seed32(&rng, 1UL);
+    match_start(&m);
+    board_clear(&m.board);
+    board_set(&m.board, 10, 10, CELL_P2);
+    board_set(&m.board, 11, 10, CELL_P2);
+    board_set(&m.board, 10, 11, CELL_P2);
+    board_set(&m.board, 11, 11, CELL_P2);
+    board_set(&m.board, 7, 10, CELL_P1);
+    board_set(&m.board, 25, 5, CELL_P1);
+    board_wrap(&m.board);
+    m.turn = CELL_P1;
+    m.range = m.board;
+    rules_range_mask(&m.range, m.turn, m.range_mask);
+    n = ai_choose(&m, AI_NORMAL, &rng, mv);
+    T_TRUE(n > 0);
+    T_EQ(mv[0].x, 9);
+    T_EQ(mv[0].y, 10);
+}
+
 static void test_sans_aucune_cellule_lia_passe(void)
 {
     Rng rng;
@@ -212,7 +272,7 @@ static void test_le_niveau_facile_est_reproductible(void)
     }
 }
 
-/* Le simulateur de la tâche 7 en dépend : une partie doit finir. */
+/* tools/sim.c en dépend : une partie doit finir. */
 static void test_une_partie_ia_contre_ia_se_termine(void)
 {
     Rng rng;
@@ -550,6 +610,7 @@ void suite_ai(void)
     T_RUN(test_la_fenetre_locale_egale_la_simulation_complete);
     T_RUN(test_les_coups_rendus_sont_legaux_et_distincts);
     T_RUN(test_lia_referme_le_bloc_plutot_que_le_clignotant);
+    T_RUN(test_lia_prefere_detruire_a_un_coup_neutre);
     T_RUN(test_sans_aucune_cellule_lia_passe);
     T_RUN(test_le_niveau_facile_est_reproductible);
     T_RUN(test_une_partie_ia_contre_ia_se_termine);
