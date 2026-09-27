@@ -35,7 +35,9 @@ Il y a deux façons de l'emporter :
 | **L'emballement, round 24** | **Le CPU vient de poser** |
 | ![Round 24 en ×2, planeurs en route](docs/screenshots/gliders.png) | ![Trois cellules rouges posées avant la génération](docs/screenshots/cpu-move.png) |
 
-![Écran de fin : populations finales et bandeau du résultat](docs/screenshots/result.png)
+| Écran de fin | Le tutoriel |
+|---|---|
+| ![Écran de fin : populations finales et bandeau du résultat](docs/screenshots/result.png) | ![Tutoriel : la leçon sur la pose, avec son texte](docs/screenshots/tutorial.png) |
 
 Le jeu tourne sur une vraie SNES ou dans un émulateur. Il se joue à deux sur la même console, ou seul contre un CPU à deux niveaux.
 
@@ -49,7 +51,7 @@ Le jeu tourne sur une vraie SNES ou dans un émulateur. Il se joue à deux sur l
 | SELECT | afficher ou masquer la portée | — |
 | START | finir son tour | valider |
 
-Le menu, sous le titre, propose trois modes : `2 PLAYERS` pour jouer à deux, `VS CPU  EASY` contre le CPU facile et `VS CPU  HARD` contre le CPU normal. Contre le CPU, le joueur humain joue le bleu. À l'écran de fin, START ramène au menu.
+Le menu, sous le titre, propose trois modes et un tutoriel : `2 PLAYERS` pour jouer à deux, `VS CPU  EASY` contre le CPU facile, `VS CPU  HARD` contre le CPU normal, et `HOW TO PLAY`, une démo commentée d'une minute qui se joue toute seule (A passe à la leçon suivante, START revient au menu). Contre le CPU, le joueur humain joue le bleu. À l'écran de fin, START ramène au menu.
 
 ## Construire le jeu
 
@@ -66,6 +68,7 @@ Deux variantes servent à la vérification sans manette :
 ```bash
 make rom-script    # build/life-script.sfc : rejoue une séquence de touches fixée
 make rom-measure   # build/life-measure.sfc : affiche la durée du tour du CPU
+make rom-tutorial  # build/life-tutorial.sfc : démarre directement sur le tutoriel
 ```
 
 Chaque build de ROM échoue si les variables statiques débordent dans la zone RAM réservée à PVSnesLib.
