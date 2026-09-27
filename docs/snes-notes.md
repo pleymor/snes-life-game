@@ -1058,7 +1058,7 @@ areas in code that runs on the console.
 the two. Every ROM target (`rom`, `rom-script`, `rom-measure`) therefore
 reads the end of the last C `.bss` section from the generated `.symfull`
 and fails with "RAM check FAILED" if it goes past `RAM_LIMIT` (7E:8000 by
-default). Today the C statics end at 7E:6916 (`rom`), 7E:691A
-(`rom-script`) and 7E:6926 (`rom-measure`): about 5.8 KB left, of which
-`ai.c` uses about 10 KB of the 18.7 KB taken. `make rom RAM_LIMIT=007e6000`
+default). Today the C statics end at 7E:6F78 (`rom`), 7E:6F7C
+(`rom-script`) and 7E:6F88 (`rom-measure`): about 4.1 KB left, of which
+`ai.c` uses about 10 KB of the 19.9 KB taken. `make rom RAM_LIMIT=007e6000`
 shows the failure.
