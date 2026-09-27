@@ -10,27 +10,27 @@ static unsigned short map_bg2[32 * 32];
 static u8 grid[BOARD_H][BOARD_W];
 static u8 hud[HUD_W];
 
-/* Discipline VBlank (ruling de la tâche 9) : render_board_now()/
-   render_hud_now() ne font que préparer map_bg1/map_bg2 et lever un
-   indicateur "en attente" ; seule render_vblank(), appelée après
-   WaitForVBlank() dans la boucle principale, transfère réellement ces
-   tampons en VRAM par DMA. Trois WaitForVBlank() par frame diviseraient le
-   taux d'affichage, et render_board_now() (768 cases) prend plus longtemps
-   que la fenêtre de VBlank : un DMA déclenché juste après le calcul
-   tomberait pendant l'affichage actif. */
+/* Discipline VBlank : render_board_now()/render_hud_now() ne font que
+   préparer map_bg1/map_bg2 et lever un indicateur "en attente" ; seule
+   render_vblank(), appelée après WaitForVBlank() dans la boucle
+   principale, transfère réellement ces tampons en VRAM par DMA. Trois
+   WaitForVBlank() par frame diviseraient le taux d'affichage, et
+   render_board_now() (768 cases) prend plus longtemps que la fenêtre de
+   VBlank : un DMA déclenché juste après le calcul tomberait pendant
+   l'affichage actif. */
 static bool_t board_pending;
 static bool_t hud_pending;
 
-/* Fix round 1 : view_hud() balaie deux fois les 768 cases du plateau
-   (board_count() pour chaque joueur) rien que pour préparer le bandeau ;
-   le rappeler à chaque frame pour un simple clignotement coûtait ce
-   balayage 60 fois par seconde sur un 65816, assez pour provoquer des
-   "lag frames" (voir docs/snes-notes.md, tâche 9 fix round 1). hud_dirty
-   ne fait recalculer le bandeau par view_hud() (dans render_hud_now(),
-   ci-dessous) qu'au démarrage et chaque fois que render_hud_dirty() est
-   appelée (dès la tâche 10, partout où board_dirty l'est aussi) ; entre
-   deux recalculs, le clignotement ne fait que basculer la seule tuile de
-   l'icône du joueur actif entre sa valeur mise en cache et TILE_EMPTY. */
+/* view_hud() balaie une fois les 768 cases du plateau (board_count_pair())
+   rien que pour préparer le bandeau ; le rappeler à chaque frame pour un
+   simple clignotement coûterait ce balayage 60 fois par seconde sur un
+   65816, assez pour provoquer des "lag frames" (voir docs/snes-notes.md
+   § 8). hud_dirty ne fait recalculer le bandeau par view_hud() (dans
+   render_hud_now(), ci-dessous) qu'au démarrage et chaque fois que
+   render_hud_dirty() est appelée (partout où main.c juge le plateau/HUD à
+   reconstruire) ; entre deux recalculs, le clignotement ne fait que
+   basculer la seule tuile de l'icône du joueur actif entre sa valeur mise
+   en cache et TILE_EMPTY. */
 static bool_t hud_dirty;
 
 /* Symboles produits par gfx4snes (data/tiles.pic, data/tiles.pal) puis
@@ -110,9 +110,9 @@ void render_init(void)
     bgSetDisable(2);
 
     /* map_bg1/map_bg2 viennent d'être remplis de TILE_EMPTY, mais la VRAM
-       elle-même ne l'est pas forcément à la mise sous tension (fix round 1,
-       constat de revue) : un transfert
-       complet de chaque tilemap ici, pendant le forced blank (setScreenOn()
+       elle-même ne l'est pas forcément à la mise sous tension : un
+       transfert complet de chaque tilemap ici, pendant le forced blank
+       (setScreenOn()
        n'a pas encore été appelé, l'accès VRAM est donc libre), garantit que
        toute la VRAM des deux tilemaps est à TILE_EMPTY avant que
        render_board_now()/render_vblank() ne se mettent à ne transférer que
@@ -138,8 +138,8 @@ void render_init(void)
 void render_board_from_grid(u8 grid_in[BOARD_H][BOARD_W])
 {
     int x, y;
-    /* Pointeurs de ligne hoistés hors de la boucle sur x (fix round 1,
-       perf review) : map_bg1 et grid_in sont tous deux de largeur 32 (une
+    /* Pointeurs de ligne hoistés hors de la boucle sur x : map_bg1 et
+       grid_in sont tous deux de largeur 32 (une
        puissance de deux, donc déjà un simple décalage plutôt qu'une vraie
        multiplication), mais hoister évite de refaire ce calcul d'adresse
        à chaque case plutôt qu'une fois par ligne. */

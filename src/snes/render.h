@@ -4,6 +4,11 @@
 #include "match.h"
 #include "view.h"   /* HUD_W */
 
+/* Programme le PPU (mode graphique, jeu de tuiles et palette en VRAM,
+   tilemaps de BG1/BG2, tuiles et palette du sprite curseur), remet à
+   TILE_EMPTY tout l'état de ce module, puis allume l'écran. À appeler une
+   seule fois, avant le tout premier écran de menu : rien ici ne doit être
+   répété entre deux parties. */
 void render_init(void);
 
 /* Ces trois fonctions ne font que préparer leurs tampons en mémoire (hors
@@ -31,11 +36,11 @@ void render_board_now(const Match *m, bool_t show_range);
 void render_board_from_grid(u8 grid[BOARD_H][BOARD_W]);
 
 /* Prépare la ligne de bandeau de BG2 pour le prochain render_vblank().
-   Deux chemins internes, pour un coût constant par frame (fix round 1,
-   tâche 9) :
-     - coûteux (deux balayages du plateau de 768 cases dans view_hud()) :
-       seulement si le bandeau a été marqué à reconstruire depuis le
-       dernier appel (voir render_hud_dirty() ci-dessous) ;
+   Deux chemins internes, pour un coût constant par frame :
+     - coûteux (un balayage du plateau dans view_hud(), via
+       board_count_pair()) : seulement si le bandeau a été marqué à
+       reconstruire depuis le dernier appel (voir render_hud_dirty()
+       ci-dessous) ;
      - bon marché, à chaque appel : ne fait que basculer la tuile de
        l'icône du joueur actif (index 0 ou 31 du bandeau) entre sa couleur
        mise en cache et TILE_EMPTY, selon `blink_on`.
@@ -57,10 +62,11 @@ void render_hud_from_row(const u8 row[HUD_W]);
 
 /* Marque le bandeau à reconstruire : le prochain render_hud_now() rappelle
    view_hud() au lieu de se contenter du clignotement bon marché. À appeler
-   au démarrage (déjà fait, l'état initial est "à reconstruire") et, à
-   partir de la tâche 10, partout où board_dirty est levé dans main.c (une
-   pose, une annulation ou une fin de tour changent aussi les effectifs, les
-   pastilles de budget et le round affichés par le bandeau). */
+   au démarrage (déjà fait, l'état initial est "à reconstruire") et partout
+   où main.c juge le plateau/HUD à reconstruire (sa variable locale
+   `dirty`) : une pose, une annulation ou une fin de tour changent aussi
+   les effectifs, les pastilles de budget et le round affichés par le
+   bandeau. */
 void render_hud_dirty(void);
 
 /* Place le sprite du curseur sur la case de jeu (x, y). Écrit directement

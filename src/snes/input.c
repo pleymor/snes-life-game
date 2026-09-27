@@ -15,19 +15,20 @@ static unsigned short prev;
 
    Chaque entrée tient son masque jusqu'à l'entrée suivante — une fonction
    en escalier de l'indice d'appel de input_edges() (le nombre d'appels
-   déjà effectués, `script_call`). Depuis la tâche 12, cet indice n'est
-   plus propre à une partie : screen_menu() et screen_result()
-   (src/snes/screens.c) appellent input_edges() elles aussi, au même
-   rythme qu'input_update() (une fois par itération de leur boucle, donc
-   une fois par frame), avant même qu'une partie n'existe et après qu'elle
-   se termine. La table ci-dessous est donc une seule chronologie continue
-   qui traverse menu -> partie -> écran de fin -> menu suivant -> partie
-   suivante, jamais rembobinée (input_reset(), pas input_init(), la pose
-   une seule fois — voir main.c).
+   déjà effectués, `script_call`). Cet indice n'est pas propre à une
+   partie : screen_menu() et screen_result() (src/snes/screens.c)
+   appellent input_edges() elles aussi, au même rythme qu'input_update()
+   (une fois par itération de leur boucle, donc une fois par frame), avant
+   même qu'une partie n'existe et après qu'elle se termine. La table
+   ci-dessous est donc une seule chronologie continue qui traverse menu ->
+   partie -> écran de fin -> menu suivant -> partie suivante, jamais
+   rembobinée (input_reset(), pas input_init(), la pose une seule fois —
+   voir main.c).
 
    L'indice n'avance que lorsqu'input_edges() est réellement appelée :
-   pendant GS_RESOLVE (main.c) et pendant que le CPU réfléchit (tour de
-   l'IA, aucun input humain lu ce tour-là), aucun appel n'a lieu et
+   pendant GS_CPU_SHOW et GS_RESOLVE (main.c) et pendant que le CPU
+   réfléchit (tour de l'IA, aucun input humain lu ce tour-là), aucun appel
+   n'a lieu et
    l'indice reste bloqué à sa valeur, alors que des images réelles
    continuent de s'écouler.
 
@@ -36,23 +37,22 @@ static unsigned short prev;
    table ne vaut *pas* l'image réelle : chaque case, pose ou tour qui
    change l'état visible (sélection du menu, tour, round...) redéclenche
    un rafraîchissement de tuiles (`render_board_from_grid()`/
-   `render_hud_now()`) dont le calcul, sur ce CPU, prend lui-même plusieurs
-   dizaines à plusieurs centaines d'images réelles avant d'atteindre le
-   `WaitForVBlank()` de cette même itération (docs/snes-notes.md § 8 :
-   c'est le même phénomène qui rendait le rafraîchissement du plateau si
-   coûteux). Un même écart d'indices entre deux entrées de la table peut
-   donc correspondre à des durées réelles très différentes selon que
+   `render_hud_now()`) dont le calcul, sur ce CPU, prend lui-même de
+   l'ordre d'une quinzaine d'images réelles avant d'atteindre le
+   `WaitForVBlank()` de cette même itération (docs/snes-notes.md § 8). Un
+   même écart d'indices entre deux entrées de la table peut donc
+   correspondre à des durées réelles légèrement différentes selon que
    l'action franchie déclenche ou non un tel rafraîchissement. La
    correspondance exacte indice -> image réelle n'est donc pas déduite
-   d'une formule : chaque image citée dans les captures du rapport de
-   tâche 12 a été retrouvée par capture/bisection directe sur la ROM
-   scriptée, pas calculée à l'avance. Pour limiter l'effet sur la
-   navigation du menu (la partie la plus sensible : ses états
-   intermédiaires ne durent que le temps d'un rafraîchissement), chaque
-   appui y est précédé d'une pause large et volontairement généreuse (150
-   appels sans touche, eux-mêmes bon marché car sans rafraîchissement) :
-   l'état qui suit chaque appui reste donc affiché largement assez
-   longtemps pour être capturé sans viser une image précise.
+   d'une formule : chaque image citée dans les captures de vérification a
+   été retrouvée par capture/bisection directe sur la ROM scriptée, pas
+   calculée à l'avance. Pour limiter l'effet sur la navigation du menu (la
+   partie la plus sensible : ses états intermédiaires ne durent que le
+   temps d'un rafraîchissement), chaque appui y est précédé d'une pause
+   large et volontairement généreuse (150 appels sans touche, eux-mêmes
+   bon marché car sans rafraîchissement) : l'état qui suit chaque appui
+   reste donc affiché largement assez longtemps pour être capturé sans
+   viser une image précise.
 
    RetroArch affiche son propre bandeau « contenu chargé » pendant les
    ~300-350 premières images (docs/snes-notes.md § 2) : une capture prise
@@ -64,7 +64,7 @@ static unsigned short prev;
        la première ligne, `2P`) ;
      - jusqu'à l'indice ~858 : trois appuis bas espacés (les deux premiers
        déplacent le disque vers `1P×1` puis `1P×2`, le troisième est
-       absorbé : la brief interdit de sortir des trois lignes) ;
+       absorbé : le menu n'a que trois lignes) ;
      - jusqu'à l'indice ~1314 : trois appuis haut espacés (les deux
        premiers ramènent vers `1P×1` puis `2P`, le troisième absorbé) ;
      - indice ~1466 : A sur `2P` (`selected == 0`) : lance une partie à
@@ -282,7 +282,7 @@ static const ScriptStep script[] = {
 #define SCRIPT_LEN (sizeof(script) / sizeof(script[0]))
 
 /* Posés par input_reset() : la RAM n'est pas remise à zéro au démarrage.
-   `script_call` n'est plus propre au tour de jeu (task 12) : les écrans de
+   `script_call` n'est pas propre au tour de jeu : les écrans de
    menu et de fin de partie (screens.c) appellent input_edges() eux aussi,
    au même rythme (une fois par itération de leur boucle, donc une fois par
    frame), avant même qu'une partie n'existe. Toute la table ci-dessus est

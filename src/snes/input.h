@@ -16,6 +16,10 @@ typedef struct {
    par input_init() n'y touche plus. */
 void input_reset(void);
 
+/* Place le curseur au centre du plateau, marquage de portée affiché,
+   répétition à zéro. À appeler au début de chaque partie (pas à
+   input_reset() ci-dessus, qui ne s'exécute qu'une fois pour tout le
+   programme). */
 void   input_init(Cursor *c);
 /* Une passe par frame. Rend TRUE si le joueur a demandé la fin de son tour. */
 bool_t input_update(Cursor *c, Match *m);
