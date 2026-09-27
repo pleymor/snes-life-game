@@ -22,7 +22,7 @@ static Winner judge_population(const Board *b)
     return WINNER_DRAW;
 }
 
-static void begin_turn(Match *m, Cell who)
+void match_begin_turn(Match *m, Cell who)
 {
     m->turn = who;
     m->placed = 0;
@@ -30,12 +30,21 @@ static void begin_turn(Match *m, Cell who)
     rules_range_mask(&m->range, who, m->range_mask);
 }
 
+void match_tick(Match *m)
+{
+    if (m->winner != WINNER_NONE) return;
+    board_wrap(&m->board);
+    life_tick(&m->board, &scratch);
+    m->board = scratch;
+    m->winner = judge_extinction(&m->board);
+}
+
 void match_start(Match *m)
 {
     board_seed(&m->board);
     m->round = 1;
     m->winner = WINNER_NONE;
-    begin_turn(m, CELL_P1);
+    match_begin_turn(m, CELL_P1);
 }
 
 int match_ticks_this_round(const Match *m)
@@ -53,7 +62,7 @@ bool_t match_place(Match *m, int x, int y)
     if (m->winner != WINNER_NONE)  return FALSE;
     if (m->placed >= BUDGET)       return FALSE;
     if (board_get(&m->board, x, y) != CELL_EMPTY) return FALSE;
-    /* La portée se lit sur le masque figé au début du tour (begin_turn),
+    /* La portée se lit sur le masque figé au début du tour (match_begin_turn),
        pas recalculée ici : une cellule posée à l'instant ne doit pas
        étendre la zone de pose, et rules_in_range() par case serait le
        même calcul refait pour rien. */
@@ -85,16 +94,13 @@ void match_end_turn(Match *m)
     if (m->winner != WINNER_NONE) return;
 
     if (m->turn == CELL_P1) {
-        begin_turn(m, CELL_P2);
+        match_begin_turn(m, CELL_P2);
         return;
     }
 
     ticks = match_ticks_this_round(m);
     for (i = 0; i < ticks; i++) {
-        board_wrap(&m->board);
-        life_tick(&m->board, &scratch);
-        m->board = scratch;
-        m->winner = judge_extinction(&m->board);
+        match_tick(m);
         if (m->winner != WINNER_NONE) {
             return;   /* un second tick n'a pas lieu */
         }
@@ -106,5 +112,5 @@ void match_end_turn(Match *m)
     }
 
     m->round++;
-    begin_turn(m, CELL_P1);
+    match_begin_turn(m, CELL_P1);
 }

@@ -1,5 +1,6 @@
 #include "harness.h"
 #include "match.h"
+#include "rules.h"
 
 static Match m;
 
@@ -202,8 +203,58 @@ static void test_le_masque_de_portee_suit_le_tour_courant(void)
     check_range_mask_matches_in_range();   /* après un tick */
 }
 
+static void test_une_generation_ne_change_ni_tour_ni_round(void)
+{
+    match_start(&m);
+    board_clear(&m.board);
+    board_set(&m.board, 10, 10, CELL_P1);    /* clignotant horizontal */
+    board_set(&m.board, 11, 10, CELL_P1);
+    board_set(&m.board, 12, 10, CELL_P1);
+    board_set(&m.board, 20, 5, CELL_P2);     /* bloc rouge, stable */
+    board_set(&m.board, 21, 5, CELL_P2);
+    board_set(&m.board, 20, 6, CELL_P2);
+    board_set(&m.board, 21, 6, CELL_P2);
+    match_tick(&m);
+    T_EQ(board_get(&m.board, 11, 9), CELL_P1);    /* devenu vertical */
+    T_EQ(board_get(&m.board, 11, 11), CELL_P1);
+    T_EQ(board_get(&m.board, 10, 10), CELL_EMPTY);
+    T_EQ(m.turn, CELL_P1);
+    T_EQ(m.round, 1);
+    T_EQ(match_winner(&m), WINNER_NONE);
+}
+
+static void test_une_generation_detecte_l_extinction(void)
+{
+    match_start(&m);
+    board_clear(&m.board);
+    board_set(&m.board, 10, 10, CELL_P1);    /* bloc bleu */
+    board_set(&m.board, 11, 10, CELL_P1);
+    board_set(&m.board, 10, 11, CELL_P1);
+    board_set(&m.board, 11, 11, CELL_P1);
+    board_set(&m.board, 20, 10, CELL_P2);    /* rouge seule : meurt */
+    match_tick(&m);
+    T_EQ(match_winner(&m), WINNER_P1);
+}
+
+static void test_commencer_un_tour_recalcule_la_portee(void)
+{
+    int x, y;
+    match_start(&m);
+    board_clear(&m.board);
+    board_set(&m.board, 5, 5, CELL_P2);
+    match_begin_turn(&m, CELL_P2);
+    T_EQ(m.turn, CELL_P2);
+    T_EQ(m.placed, 0);
+    for (y = 0; y < BOARD_H; y++)
+        for (x = 0; x < BOARD_W; x++)
+            T_EQ(m.range_mask[y][x], rules_in_range(&m.board, CELL_P2, x, y) ? 1 : 0);
+}
+
 void suite_match(void)
 {
+    T_RUN(test_une_generation_ne_change_ni_tour_ni_round);
+    T_RUN(test_une_generation_detecte_l_extinction);
+    T_RUN(test_commencer_un_tour_recalcule_la_portee);
     T_RUN(test_trois_poses_puis_le_budget_est_epuise);
     T_RUN(test_une_pose_hors_portee_est_refusee);
     T_RUN(test_la_portee_est_figee_pour_le_tour);

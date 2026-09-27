@@ -41,6 +41,15 @@ bool_t match_undo(Match *m);
    partie est déjà terminée (match_winner() != WINNER_NONE). */
 void   match_end_turn(Match *m);
 
+/* Une génération : halo recopié, life_tick, puis contrôle d'extinction
+   (m->winner mis à jour). Le tour, le round et les poses ne changent pas.
+   Sans effet si la partie est finie. */
+void match_tick(Match *m);
+
+/* Donne la main à `who` : poses remises à zéro, instantané de portée pris
+   sur le plateau courant, masque de portée recalculé. */
+void match_begin_turn(Match *m, Cell who);
+
 /* WINNER_NONE tant que la partie continue. */
 Winner match_winner(const Match *m);
 
