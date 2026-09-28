@@ -136,7 +136,8 @@ clean-snes-intermediates:
 # goes past RAM_LIMIT (docs/snes-notes.md section 10). Addresses are 8
 # lowercase hex digits, so a plain string comparison orders them.
 # Mémoire son : musique + effets <= 58 Ko (59392 octets) pour chaque
-# musique, lu dans l'en-tête que smconv génère (MOD_*_SIZE).
+# musique, lu dans l'en-tête que smconv génère (MOD_*_SIZE). Et la banque
+# doit tenir dans les deux banques ROM que src/snes/sound.c déclare.
 SOUND_LIMIT ?= 59392
 define check_sound
 	@awk -v lim=$(SOUND_LIMIT) ' \
@@ -149,6 +150,9 @@ define check_sound
 	            if (t > lim) { print "Sound check FAILED: " k " + effects = " t " > " lim; bad = 1 } \
 	            else print "Sound check: " k " + effects = " t " (limit " lim ")" } \
 	        exit bad }' $(SOUNDBANK).h
+	@if grep -q 'SOUNDBANK__2' $(SOUNDBANK).asm; then \
+	    echo "Sound check FAILED: the sound bank spans 3 ROM banks; declare SOUNDBANK__2 and call spcSetBank(&SOUNDBANK__2) in src/snes/sound.c"; \
+	    exit 1; fi
 endef
 
 RAM_LIMIT ?= 007e8000
