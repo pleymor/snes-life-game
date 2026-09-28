@@ -80,7 +80,20 @@ data/sprites.pic: data/sprites.bmp
 
 data/sprites.pal: data/sprites.pic ;
 
+# snesmod : le premier module de la liste fournit les effets (smconv -f
+# vérifie que chaque musique tient avec eux), puis les trois musiques.
+AUDIOFILES := data/audio/sfx.it data/audio/alonely.it data/audio/offerthelight.it data/audio/purity.it
+export SOUNDBANK := data/audio/soundbank
+SMCONVFLAGS := -s -o $(SOUNDBANK) -V -b 5 -f
+CFLAGS += -Idata/audio
+
+data/audio/sfx.it: tools/mksfx.py $(wildcard data/audio/sfx/*.wav)
+	python3 tools/mksfx.py
+
 include $(PVSNESLIB_HOME)/devkitsnes/snes_rules
+
+# sound.c inclut soundbank.h, produit par smconv avec la banque.
+src/snes/sound.ps: $(SOUNDBANK).asm
 
 # src/snes/tiles.asm/sprites.asm .incbin data/tiles.{pic,pal} and
 # data/sprites.{pic,pal} (via the gfx4snes-generated data/*_data.as); make
@@ -116,6 +129,22 @@ clean-snes-intermediates:
 # end of the last C .bss section from the generated .symfull and fails if it
 # goes past RAM_LIMIT (docs/snes-notes.md section 10). Addresses are 8
 # lowercase hex digits, so a plain string comparison orders them.
+# Mémoire son : musique + effets <= 58 Ko (59392 octets) pour chaque
+# musique, lu dans l'en-tête que smconv génère (MOD_*_SIZE).
+SOUND_LIMIT ?= 59392
+define check_sound
+	@awk -v lim=$(SOUND_LIMIT) ' \
+	    $$1 ~ /define$$/ && $$2 ~ /^MOD_.*_SIZE$$/ { size[$$2] = $$3 } \
+	    END { \
+	        sfx = size["MOD_SFX_SIZE"]; if (sfx == "") { print "Sound check: no MOD_SFX_SIZE"; exit 1 } \
+	        bad = 0; \
+	        for (k in size) if (k != "MOD_SFX_SIZE") { \
+	            t = size[k] + sfx; \
+	            if (t > lim) { print "Sound check FAILED: " k " + effects = " t " > " lim; bad = 1 } \
+	            else print "Sound check: " k " + effects = " t " (limit " lim ")" } \
+	        exit bad }' $(SOUNDBANK).h
+endef
+
 RAM_LIMIT ?= 007e8000
 define check_ram
 	@awk -v lim=$(RAM_LIMIT) -v f=$(1) ' \
@@ -131,6 +160,7 @@ endef
 
 .PHONY: rom rom-script rom-measure rom-tutorial
 rom: clean-snes-intermediates buildWithSummary
+	$(call check_sound)
 	$(call check_ram,$(ROMNAME).symfull)
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
@@ -138,6 +168,7 @@ rom: clean-snes-intermediates buildWithSummary
 	mv $(ROMNAME).symfull build/
 
 rom-script: clean-snes-intermediates buildWithSummary
+	$(call check_sound)
 	$(call check_ram,$(ROMNAME).symfull)
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
@@ -145,6 +176,7 @@ rom-script: clean-snes-intermediates buildWithSummary
 	mv $(ROMNAME).symfull build/
 
 rom-measure: clean-snes-intermediates buildWithSummary
+	$(call check_sound)
 	$(call check_ram,$(ROMNAME).symfull)
 	mkdir -p build
 	mv $(ROMNAME).sfc build/
@@ -152,6 +184,7 @@ rom-measure: clean-snes-intermediates buildWithSummary
 	mv $(ROMNAME).symfull build/
 
 rom-tutorial: clean-snes-intermediates buildWithSummary
+	$(call check_sound)
 	$(call check_ram,$(ROMNAME).symfull)
 	mkdir -p build
 	mv $(ROMNAME).sfc build/

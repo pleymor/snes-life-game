@@ -24,3 +24,7 @@ data/*_data.as
 /life-measure.log
 /life-tutorial.log
 __pycache__/
+data/audio/soundbank.asm
+data/audio/soundbank.bnk
+data/audio/soundbank.h
+data/audio/soundbank.obj
