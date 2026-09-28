@@ -182,6 +182,7 @@ SIMFLAGS  := -std=c99 -Wall -Wextra -O2 -Isrc/core
 .PHONY: test clean sim
 test: build/run-tests
 	./build/run-tests
+	python3 tools/test_mksfx.py
 
 # Les en-têtes sont des prérequis (config.h en particulier : un balayage de
 # réglages qui ne touche que config.h doit forcer la recompilation), mais ne

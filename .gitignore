@@ -23,3 +23,4 @@ data/*_data.as
 .worktrees/
 /life-measure.log
 /life-tutorial.log
+__pycache__/
