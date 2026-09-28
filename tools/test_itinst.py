@@ -105,6 +105,39 @@ def silent_portamento_notes(d):
         pos, row = nxt
     return found
 
+CMD_T = 20                      # IT tempo; parameters >= 0x20 set the tempo
+
+def it_tick(tempo):
+    """Seconds per tick in Impulse Tracker."""
+    return 2.5 / tempo
+
+def snesmod_tick(tempo, command=False):
+    """Seconds per tick in snesmod's driver: timer 0 (8 kHz) counts
+    0x5000 / tempo periods, and T commands are clamped to 80..200."""
+    if command:
+        tempo = min(max(tempo, 80), 200)
+    return (0x5000 // tempo) / 8000.0
+
+def tempo_cells(d):
+    return {(k, r, ch): cell[4]
+            for k, rows in enumerate(patterns(d)) if rows
+            for r, row in enumerate(rows)
+            for ch, cell in row.items() if cell[3] == CMD_T and cell[4] >= 0x20}
+
+def check_tempo(name, orig, out):
+    """snesmod plays every tempo within 1% of the tracker's tick length (the
+    driver's timer cannot do better: 0x5000 // tempo skips counts)."""
+    want, got = orig[0x33], out[0x33]
+    if abs(snesmod_tick(got) / it_tick(want) - 1) > 0.01:
+        fail("%s: initial tempo %d plays %d with a %.1f%% longer tick"
+             % (name, got, want, 100 * (snesmod_tick(got) / it_tick(want) - 1)))
+    after = tempo_cells(out)
+    for cell, t in tempo_cells(orig).items():
+        if cell not in after:
+            fail("%s: tempo command at %r lost" % (name, cell))
+        if abs(snesmod_tick(after[cell], True) / it_tick(t) - 1) > 0.01:
+            fail("%s: T%02X at %r plays T%02X on snesmod" % (name, t, cell, after[cell]))
+
 def check_portamento(name, orig, out):
     """Notes snesmod would leave silent lose their G, and nothing else changes."""
     if silent_portamento_notes(out):
@@ -124,6 +157,8 @@ def check_portamento(name, orig, out):
                     continue
                 if (k, r, ch) in stripped and ca[:3] == cb[:3] and ca[3] == CMD_G and cb[3:] == [None, None]:
                     continue
+                if ca[:4] == cb[:4] and ca[3] == CMD_T and ca[4] >= 0x20 and cb[4] >= 0x20:
+                    continue                # rescaled tempo: see check_tempo
                 fail("%s: pattern %d row %d channel %d changed: %r -> %r" % (name, k, r, ch, ca, cb))
 
 def main():
@@ -139,7 +174,7 @@ def main():
         if not flags & 0x04:
             fail("%s: not in instrument mode" % name)
         if oflags & 0x04:
-            if out != orig:
+            if itinst.to_instruments(orig) != orig:
                 fail("%s: instrument-mode module was modified" % name)
         else:
             if len(ins) != len(osmp):
@@ -160,6 +195,7 @@ def main():
             if p and not (0 < p < len(out)):
                 fail("%s: pattern pointer out of file" % name)
         check_portamento(name, orig, out)
+        check_tempo(name, orig, out)
         committed = os.path.join(ROOT, "data", "audio", "snes", name + ".it")
         if not os.path.exists(committed) or open(committed, "rb").read() != out:
             fail("%s: data/audio/snes/%s.it is missing or stale: run python3 tools/itinst.py" % (name, name))

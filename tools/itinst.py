@@ -14,6 +14,11 @@ Tracker, lui, démarre normalement une telle note sur une voix muette. Une
 note avec G jouée sur une voix muette, dans l'ordre de lecture, perd donc son
 G : elle sonne pareil dans un tracker, et snesmod la joue enfin.
 
+Le pilote compte aussi ses ticks sur 0x5000 / tempo périodes de 125 µs, là
+où Impulse Tracker dure 2,5 / tempo s : tout jouerait environ 2 % trop
+lentement. Le tempo initial et les commandes T sont donc remplacés par le
+tempo dont le tick snesmod est le plus proche de celui d'origine.
+
 Lit data/audio/<nom>.it (tel que téléchargé), écrit data/audio/snes/<nom>.it.
 """
 import os, struct
@@ -25,6 +30,7 @@ INS_SIZE = 554                  # instrument IT « nouveau format » (IMPI)
 USE_INSTRUMENTS = 0x04          # drapeau d'en-tête
 CMD_G = 7                       # portamento vers la note
 CMD_B, CMD_C = 2, 3             # saut de position, fin de motif
+CMD_T = 20                      # tempo (paramètre >= 0x20)
 NOTE_STOPS = (254, 255, 246)    # coupure, relâchement, fondu
 
 def instrument(k, name):
@@ -147,19 +153,55 @@ def start_portamento_notes(data):
     (niveaux de mixage...). Les autres motifs restent octet pour octet.
     """
     cells = silent_portamento_notes(data)
-    if not cells:
-        return data
-    ordnum, insnum, smpnum, patnum = struct.unpack_from("<HHHH", data, 0x20)
-    table = 0xC0 + ordnum + 4 * (insnum + smpnum)
-    out = bytearray(data)
-    for k in sorted({c[0] for c in cells}):
-        ptr = struct.unpack_from("<I", out, table + 4 * k)[0]
-        rows = unpack_pattern(out, ptr)
+
+    def edit(k, rows):
         for pat, r, ch in cells:
             if pat == k:
                 rows[r][ch][3:5] = [None, None]
-        old = 8 + struct.unpack_from("<H", out, ptr)[0]
-        out = splice(out, ptr, old, pack_pattern(rows))
+        return any(c[0] == k for c in cells)
+
+    return rewrite_patterns(data, edit)
+
+def snesmod_tempo(tempo, command=False):
+    """Tempo dont le tick snesmod est le plus proche du tick IT de `tempo`.
+
+    Les commandes T sont bornées à 80..200 par le pilote.
+    """
+    lo, hi = (80, 200) if command else (32, 255)
+    want = 2.5 / tempo
+    return min(range(lo, hi + 1), key=lambda t: (abs((0x5000 // t) / 8000.0 - want), abs(t - tempo)))
+
+def fit_tempo(data):
+    """Recale le tempo initial et les commandes T sur l'horloge de snesmod."""
+    out = bytearray(data)
+    out[0x33] = snesmod_tempo(out[0x33])
+
+    def edit(k, rows):
+        changed = False
+        for row in rows:
+            for cell in row.values():
+                if cell[3] == CMD_T and cell[4] >= 0x20:
+                    new = snesmod_tempo(cell[4], True)
+                    changed |= new != cell[4]
+                    cell[4] = new
+        return changed
+
+    return rewrite_patterns(bytes(out), edit)
+
+def rewrite_patterns(data, edit):
+    """Applique edit(numéro, lignes) à chaque motif ; un motif dont edit
+    renvoie vrai est ré-encodé à sa place (voir splice)."""
+    ordnum, insnum, smpnum, patnum = struct.unpack_from("<HHHH", data, 0x20)
+    table = 0xC0 + ordnum + 4 * (insnum + smpnum)
+    out = bytearray(data)
+    for k in range(patnum):
+        ptr = struct.unpack_from("<I", out, table + 4 * k)[0]
+        if not ptr:
+            continue
+        rows = unpack_pattern(out, ptr)
+        if edit(k, rows):
+            old = 8 + struct.unpack_from("<H", out, ptr)[0]
+            out = splice(out, ptr, old, pack_pattern(rows))
     return bytes(out)
 
 def splice(data, pos, length, blob):
@@ -187,7 +229,7 @@ def splice(data, pos, length, blob):
 
 def convert(data):
     """Rend un module IT jouable par snesmod (voir l'en-tête du fichier)."""
-    return start_portamento_notes(to_instruments(data))
+    return fit_tempo(start_portamento_notes(to_instruments(data)))
 
 def to_instruments(data):
     """Passe un module du mode échantillons au mode instruments."""
