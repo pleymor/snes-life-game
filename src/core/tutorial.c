@@ -131,15 +131,19 @@ static void exec_op(TutPlayer *p, Match *m, int i)
     case TUT_PLACE:
         p->cursor_x = A(i);
         p->cursor_y = B(i);
-        match_place(m, A(i), B(i));
+        if (match_place(m, A(i), B(i))) p->placements++;
         break;
     case TUT_ENDTURN:
+        /* La fin du tour du rouge fait tourner les générations du round. */
+        if (m->turn == CELL_P2 && m->winner == WINNER_NONE)
+            p->generations += match_ticks_this_round(m);
         match_end_turn(m);
         break;
     case TUT_TICK:
         /* Sans arbitrage : une leçon n'est pas une partie, un camp absent
            ne doit pas y déclarer de vainqueur. */
         match_generation(m);
+        p->generations++;
         break;
     default:
         break;
@@ -185,6 +189,8 @@ void tut_start(TutPlayer *p, Match *m)
     p->cursor_on = FALSE;
     p->show_range = FALSE;
     p->done = FALSE;
+    p->placements = 0;
+    p->generations = 0;
     match_start(m);
     tut_update(p, m, 0);
 }

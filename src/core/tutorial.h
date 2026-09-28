@@ -16,6 +16,8 @@ typedef struct {
     bool_t cursor_on;   /* curseur montré */
     bool_t show_range;  /* points de portée montrés */
     bool_t done;        /* tutoriel fini */
+    int    placements;  /* poses réussies exécutées depuis tut_start() */
+    int    generations; /* générations exécutées depuis tut_start() */
 } TutPlayer;
 
 /* Démarre à la leçon 1 et joue sa mise en place. */

@@ -126,6 +126,7 @@ static int same_state(const TutPlayer *a, const Match *ma, const TutPlayer *b, c
 {
     int x, y;
     if (a->pc != b->pc || a->wait != b->wait || a->lesson != b->lesson ||
+        a->placements != b->placements || a->generations != b->generations ||
         a->caption != b->caption || a->cursor_x != b->cursor_x ||
         a->cursor_y != b->cursor_y || a->cursor_on != b->cursor_on ||
         a->show_range != b->show_range || a->done != b->done) return 0;
@@ -235,8 +236,40 @@ static void test_un_texte_hors_bornes_est_vide(void)
     T_EQ(cap[1][(int)(strchr(tut_caption_line(1, 1), ',') - tut_caption_line(1, 1))], TILE_COMMA);
 }
 
+static void test_le_lecteur_compte_les_poses(void)
+{
+    int before;
+    play_to_end_of_lesson(4);
+    before = p.placements;
+    while (!(p.lesson == 5 && tut_lesson_done(&p))) tut_update(&p, &m, 1);
+    T_EQ(p.placements - before, 3);            /* leçon 5 : trois poses */
+}
+
+static void test_le_lecteur_compte_les_generations(void)
+{
+    int before;
+    play_to_end_of_lesson(6);
+    before = p.generations;
+    while (!(p.lesson == 7 && tut_lesson_done(&p))) tut_update(&p, &m, 1);
+    T_EQ(p.generations - before, 12);          /* leçon 7 : douze générations */
+    before = p.generations;
+    while (!(p.lesson == 8 && tut_lesson_done(&p))) tut_update(&p, &m, 1);
+    T_EQ(p.generations - before, 2);           /* leçon 8 : deux au round 16 */
+}
+
+static void test_les_compteurs_partent_de_zero(void)
+{
+    memset(&p, 0x55, sizeof(p));
+    tut_start(&p, &m);
+    T_EQ(p.placements, 0);
+    T_EQ(p.generations, 0);
+}
+
 void suite_tutorial(void)
 {
+    T_RUN(test_le_lecteur_compte_les_poses);
+    T_RUN(test_le_lecteur_compte_les_generations);
+    T_RUN(test_les_compteurs_partent_de_zero);
     T_RUN(test_lecon_1_position_de_depart);
     T_RUN(test_lecon_2_la_cellule_seule_meurt);
     T_RUN(test_lecon_3_la_surpopulation_tue);
