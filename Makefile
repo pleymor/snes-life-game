@@ -82,13 +82,19 @@ data/sprites.pal: data/sprites.pic ;
 
 # snesmod : le premier module de la liste fournit les effets (smconv -f
 # vérifie que chaque musique tient avec eux), puis les trois musiques.
-AUDIOFILES := data/audio/sfx.it data/audio/alonely.it data/audio/offerthelight.it data/audio/purity.it
+# Les musiques passent par tools/itinst.py : snesmod ne joue que les
+# modules en mode instruments (data/audio/snes/, générés et versionnés).
+AUDIOFILES := data/audio/sfx.it data/audio/snes/alonely.it data/audio/snes/offerthelight.it data/audio/snes/purity.it
 export SOUNDBANK := data/audio/soundbank
 SMCONVFLAGS := -s -o $(SOUNDBANK) -V -b 5 -f
 CFLAGS += -Idata/audio
 
 data/audio/sfx.it: tools/mksfx.py $(wildcard data/audio/sfx/*.wav)
 	python3 tools/mksfx.py
+
+data/audio/snes/alonely.it: tools/itinst.py data/audio/alonely.it data/audio/offerthelight.it data/audio/purity.it
+	python3 tools/itinst.py
+data/audio/snes/offerthelight.it data/audio/snes/purity.it: data/audio/snes/alonely.it ;
 
 include $(PVSNESLIB_HOME)/devkitsnes/snes_rules
 
@@ -216,6 +222,7 @@ SIMFLAGS  := -std=c99 -Wall -Wextra -O2 -Isrc/core
 test: build/run-tests
 	./build/run-tests
 	python3 tools/test_mksfx.py
+	python3 tools/test_itinst.py
 
 # Les en-têtes sont des prérequis (config.h en particulier : un balayage de
 # réglages qui ne touche que config.h doit forcer la recompilation), mais ne
