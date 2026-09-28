@@ -2,7 +2,11 @@
 
 ## Music
 
-All three modules are by **Beyond**, released into the **public domain** (Creative Commons Public Domain), as stated on each module's page of The Mod Archive (checked 2026-09-28). The downloaded files are committed unchanged in `data/audio/`; only their names differ. snesmod only plays modules in instrument mode, so `tools/itinst.py` writes the versions the ROM uses into `data/audio/snes/`: one instrument per sample, mapping every note to that sample, patterns and samples untouched (`tools/test_itinst.py` checks that both versions render the same). *Offer the light* is already in instrument mode and is copied as is.
+All three modules are by **Beyond**, released into the **public domain** (Creative Commons Public Domain), as stated on each module's page of The Mod Archive (checked 2026-09-28). The downloaded files are committed unchanged in `data/audio/`; only their names differ. `tools/itinst.py` writes the versions the ROM uses into `data/audio/snes/`, adapted to snesmod's driver, samples untouched:
+
+- snesmod only plays modules in instrument mode: each sample gets an instrument mapping every note to it (*Offer the light* is already in instrument mode). When openmpt123 is installed, `tools/test_itinst.py` checks that this step renders the same.
+- snesmod never starts a note that carries a tone portamento (G) on a silent channel, where Impulse Tracker starts it normally: such notes lose their G (the *Alonely* bass and chords).
+- snesmod's timer makes every tick about 2% longer: the initial tempo and T commands are replaced by the tempo whose snesmod tick is closest to the original one.
 
 | File | Title | Source |
 |---|---|---|

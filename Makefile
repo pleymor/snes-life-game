@@ -82,8 +82,9 @@ data/sprites.pal: data/sprites.pic ;
 
 # snesmod : le premier module de la liste fournit les effets (smconv -f
 # vérifie que chaque musique tient avec eux), puis les trois musiques.
-# Les musiques passent par tools/itinst.py : snesmod ne joue que les
-# modules en mode instruments (data/audio/snes/, générés et versionnés).
+# Les musiques passent par tools/itinst.py, qui les adapte au pilote de
+# snesmod : mode instruments, notes G sur voix muette, tempo recalé
+# (data/audio/snes/, générés et versionnés).
 AUDIOFILES := data/audio/sfx.it data/audio/snes/alonely.it data/audio/snes/offerthelight.it data/audio/snes/purity.it
 export SOUNDBANK := data/audio/soundbank
 SMCONVFLAGS := -s -o $(SOUNDBANK) -V -b 5 -f
