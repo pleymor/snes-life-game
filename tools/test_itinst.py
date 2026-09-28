@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 """Checks tools/itinst.py: sample-mode IT modules become instrument-mode
-modules that play the same, which snesmod needs to play them at all."""
+modules that play the same, which snesmod needs to play them at all, and
+notes snesmod would never key on (G on a silent channel) lose their G.
+
+The render check covers the instrument conversion only. Dropping G changes
+how OpenMPT carries a voice into later portamentos (it restarts the wave where
+the original glides: same spectrum, different phase), so the portamento step
+is checked cell by cell instead."""
 import math, os, shutil, struct, subprocess, sys, tempfile, wave
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -46,7 +52,82 @@ def render_rms_diff(a_path, b_path):
     diff = math.sqrt(sum((x - y) ** 2 for x, y in zip(a[:n], b[:n])) / n)
     return ref, diff, len(a), len(b)
 
+CMD_G = 7                       # IT tone portamento
+NOTE_STOPS = (254, 255, 246)    # note cut, note off, note fade
+
+def check_pattern_codec():
+    """A hand-packed pattern decodes with IT's per-channel value memory."""
+    packed = bytes([0x81, 0x0F, 48, 1, 32, CMD_G, 0x90, 0,     # row 0: explicit
+                    0x81, 0xF0, 0,                             # row 1: all "last"
+                    0x82, 0x01, 50, 0])                        # row 2: ch 1 note
+    head = struct.pack("<HH4x", len(packed), 3)
+    rows = itinst.unpack_pattern(head + packed, 0)
+    want = [{0: [48, 1, 32, CMD_G, 0x90]}, {0: [48, 1, 32, CMD_G, 0x90]}, {1: [50, None, None, None, None]}]
+    if rows != want:
+        fail("pattern decode: %r" % rows)
+    again = itinst.unpack_pattern(itinst.pack_pattern(rows), 0)
+    if again != want:
+        fail("pattern re-encode: %r" % again)
+
+def patterns(d):
+    _, _, _, pat = header(d)
+    return [itinst.unpack_pattern(d, p) if p else None for p in pat]
+
+def silent_portamento_notes(d):
+    """(pattern, row, channel) of each note carrying G on a channel that is
+    not playing at that point of the song: snesmod never keys such a note
+    on, while Impulse Tracker starts it normally."""
+    ordnum = struct.unpack_from("<H", d, 0x20)[0]
+    orders = list(d[0xC0:0xC0 + ordnum])
+    pats = patterns(d)
+    playing, found, seen = set(), set(), set()
+    pos, row = 0, 0
+    while pos < len(orders) and orders[pos] != 255:
+        if orders[pos] == 254 or pats[orders[pos]] is None:
+            pos, row = pos + 1, 0
+            continue
+        if (pos, row) in seen:
+            break
+        seen.add((pos, row))
+        rows = pats[orders[pos]]
+        nxt = (pos, row + 1) if row + 1 < len(rows) else (pos + 1, 0)
+        for ch, (note, _, _, cmd, param) in sorted(rows[row].items()):
+            if note is not None and note < 120:
+                if cmd == CMD_G and ch not in playing:
+                    found.add((orders[pos], row, ch))
+                playing.add(ch)
+            elif note in NOTE_STOPS:
+                playing.discard(ch)
+            if cmd == 3:                    # Cxx: pattern break
+                nxt = (pos + 1, param)
+            elif cmd == 2:                  # Bxx: position jump
+                nxt = (param, 0)
+        pos, row = nxt
+    return found
+
+def check_portamento(name, orig, out):
+    """Notes snesmod would leave silent lose their G, and nothing else changes."""
+    if silent_portamento_notes(out):
+        fail("%s: G notes on silent channels: %s" % (name, sorted(silent_portamento_notes(out))))
+    stripped = silent_portamento_notes(orig)
+    for k, (a, b) in enumerate(zip(patterns(orig), patterns(out))):
+        if a is None or b is None:
+            if a != b:
+                fail("%s: pattern %d presence changed" % (name, k))
+            continue
+        if len(a) != len(b):
+            fail("%s: pattern %d row count changed" % (name, k))
+        for r, (ra, rb) in enumerate(zip(a, b)):
+            for ch in set(ra) | set(rb):
+                ca, cb = ra.get(ch), rb.get(ch)
+                if ca == cb:
+                    continue
+                if (k, r, ch) in stripped and ca[:3] == cb[:3] and ca[3] == CMD_G and cb[3:] == [None, None]:
+                    continue
+                fail("%s: pattern %d row %d channel %d changed: %r -> %r" % (name, k, r, ch, ca, cb))
+
 def main():
+    check_pattern_codec()
     for name in MUSIC:
         src = os.path.join(ROOT, "data", "audio", name + ".it")
         orig = open(src, "rb").read()
@@ -78,11 +159,16 @@ def main():
         for p in pat:
             if p and not (0 < p < len(out)):
                 fail("%s: pattern pointer out of file" % name)
+        check_portamento(name, orig, out)
         committed = os.path.join(ROOT, "data", "audio", "snes", name + ".it")
         if not os.path.exists(committed) or open(committed, "rb").read() != out:
             fail("%s: data/audio/snes/%s.it is missing or stale: run python3 tools/itinst.py" % (name, name))
         if shutil.which("openmpt123"):
-            ref, diff, la, lb = render_rms_diff(src, committed)
+            converted = os.path.join(tempfile.mkdtemp(), name + ".it")
+            with open(converted, "wb") as f:
+                f.write(itinst.to_instruments(orig))
+            ref, diff, la, lb = render_rms_diff(src, converted)
+            shutil.rmtree(os.path.dirname(converted))
             if la != lb or diff > 0.02 * ref:
                 fail("%s: renders differ (rms %.1f, diff %.1f, %d/%d samples)" % (name, ref, diff, la, lb))
     print("test_itinst: %d modules ok" % len(MUSIC))
