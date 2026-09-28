@@ -89,6 +89,10 @@ Le workflow **Release** (`.github/workflows/release.yml`) se lance à la main : 
 gh workflow run release.yml -f version=v1.0.0
 ```
 
+## Musique et sons
+
+Chaque mode a sa musique : *Alonely* pour le menu, la partie à deux et le tutoriel, *Offer the light* contre le CPU facile, *Purity* contre le CPU difficile. Les trois morceaux sont de l'artiste Beyond, dans le domaine public ; les bruitages viennent du pack *Digital Audio* de Kenney, sous licence CC0. Sources, licences et conversion : [`data/audio/CREDITS.md`](data/audio/CREDITS.md).
+
 ## Organisation du code
 
 | Dossier | Contenu |

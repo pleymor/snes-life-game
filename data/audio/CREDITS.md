@@ -2,7 +2,7 @@
 
 ## Music
 
-All three modules are by **Beyond**, released into the **public domain** (Creative Commons Public Domain), as stated on each module's page of The Mod Archive (checked 2026-09-28). The files are committed unchanged; only their names differ.
+All three modules are by **Beyond**, released into the **public domain** (Creative Commons Public Domain), as stated on each module's page of The Mod Archive (checked 2026-09-28). The downloaded files are committed unchanged in `data/audio/`; only their names differ. snesmod only plays modules in instrument mode, so `tools/itinst.py` writes the versions the ROM uses into `data/audio/snes/`: one instrument per sample, mapping every note to that sample, patterns and samples untouched (`tools/test_itinst.py` checks that both versions render the same). *Offer the light* is already in instrument mode and is copied as is.
 
 | File | Title | Source |
 |---|---|---|
