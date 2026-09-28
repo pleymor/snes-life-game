@@ -108,6 +108,8 @@ static const ScriptStep script[] = {
     {  1313, 0 },
     {  1464, KEY_A },
     {  1465, 0 },
+    {  1467, KEY_A },     /* pose refusée : centre hors de portée (son de refus) */
+    {  1468, 0 },
     {  1470, KEY_START },
     {  1471, 0 },
     {  1472, KEY_START },
