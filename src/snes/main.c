@@ -182,6 +182,8 @@ int main(void)
             screen_tutorial(&m);
             continue;
         }
+        sound_music(cpu_level == (int)AI_EASY   ? MUSIC_OFFER  :
+                    cpu_level == (int)AI_NORMAL ? MUSIC_PURITY : MUSIC_ALONELY);
         /* Graine explicite et reproductible pour une même chronologie
            d'entrées, mais qui varie d'une partie à l'autre avec le temps
            passé sur le menu (menu_frames) plutôt qu'une constante fixe : la
@@ -211,6 +213,7 @@ int main(void)
             Snapshot before, after;
             bool_t ticked = FALSE;
             bool_t dirty;
+            GameState was = state;
 
             snapshot_take(&before, state);
 
@@ -242,6 +245,7 @@ int main(void)
                                coups légaux (couverts par tests/test_ai.c),
                                donc l'échec ne peut pas arriver ici. */
                             match_place(&m, (int)job.out[i].x, (int)job.out[i].y);
+                            sound_sfx(SFX_PLACE);
                         }
                         cpu_thinking = FALSE;
                         /* Ni GS_RESOLVE ni GS_OVER tout de suite : spec § 2.3,
@@ -321,8 +325,14 @@ int main(void)
                tour du CPU en cours. */
             render_cursor(cur.x, cur.y, (bool_t)(state == GS_TURN && !cpu_thinking));
 
+            /* Une génération vient d'avoir lieu (fin du tour du rouge ou du
+               CPU) : GS_RESOLVE, ou GS_OVER directement si elle a tranché. */
+            if (state == GS_RESOLVE && was != GS_RESOLVE) sound_sfx(SFX_TICK);
+            if (state == GS_OVER && was != GS_OVER && was != GS_RESOLVE) sound_sfx(SFX_TICK);
+
             WaitForVBlank();
             render_vblank();
+            sound_update();
         }
 
         /* Partie terminée (state == GS_OVER) : plateau final déjà à

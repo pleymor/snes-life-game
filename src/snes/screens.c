@@ -23,6 +23,7 @@
 #include "input.h"
 #include "ai.h"
 #include "tutorial.h"
+#include "sound.h"
 
 /* Bandeau de fin de partie : une alternance toutes les trente images
    réelles entre la couleur du vainqueur et une ligne vide. */
@@ -50,12 +51,13 @@ int screen_menu(unsigned int *frames)
     render_hud_from_row(hud_row);
     /* Curseur de jeu caché sur le menu. */
     render_cursor(0, 0, FALSE);
+    sound_music(MUSIC_ALONELY);
 
     for (;;) {
         unsigned short hit = input_edges((unsigned short *)0);
 
-        if ((hit & KEY_UP) && selected > 0)   { selected--; dirty = TRUE; }
-        if ((hit & KEY_DOWN) && selected < 3) { selected++; dirty = TRUE; }
+        if ((hit & KEY_UP) && selected > 0)   { selected--; dirty = TRUE; sound_sfx(SFX_MENU); }
+        if ((hit & KEY_DOWN) && selected < 3) { selected++; dirty = TRUE; sound_sfx(SFX_MENU); }
 
         if (dirty) {
             view_menu(selected, grid);
@@ -67,8 +69,10 @@ int screen_menu(unsigned int *frames)
         frame++;
         WaitForVBlank();
         render_vblank();
+        sound_update();
 
         if (hit & (KEY_A | KEY_START)) {
+            sound_sfx(SFX_SELECT);
             *frames = frame;
             if (selected == 0) return -1;
             if (selected == 3) return MENU_TUTORIAL;
@@ -102,6 +106,7 @@ void screen_result(const Match *m)
     render_hud_from_row(banner_row);
 
     render_cursor(0, 0, FALSE);
+    sound_sfx(SFX_WIN);
 
     for (;;) {
         unsigned short hit = input_edges((unsigned short *)0);
@@ -116,6 +121,7 @@ void screen_result(const Match *m)
 
         WaitForVBlank();
         render_vblank();
+        sound_update();
 
         if (hit & KEY_START) return;
     }
@@ -129,8 +135,12 @@ void screen_tutorial(Match *m)
     static u8 banner[HUD_W];
     u16 last, now;
     bool_t changed = TRUE;
+    int placed_seen, gen_seen;
 
     tut_start(&p, m);
+    sound_music(MUSIC_ALONELY);
+    placed_seen = p.placements;
+    gen_seen = p.generations;
     last = (u16)snes_vblank_count;
 
     for (;;) {
@@ -139,11 +149,15 @@ void screen_tutorial(Match *m)
         if (hit & KEY_START) break;
         if (hit & KEY_A) {
             tut_skip(&p, m);
+            placed_seen = p.placements;
+            gen_seen = p.generations;
             changed = TRUE;
         }
         now = (u16)snes_vblank_count;
         if (tut_update(&p, m, (int)(u16)(now - last))) changed = TRUE;
         last = now;
+        if (p.placements != placed_seen) { sound_sfx(SFX_PLACE); placed_seen = p.placements; }
+        if (p.generations != gen_seen)   { sound_sfx(SFX_TICK);  gen_seen = p.generations; }
         if (p.done) break;
 
         if (changed) {
@@ -165,6 +179,7 @@ void screen_tutorial(Match *m)
 
         WaitForVBlank();
         render_vblank();
+        sound_update();
     }
 
     view_caption(-1, caption);
@@ -172,4 +187,5 @@ void screen_tutorial(Match *m)
     render_cursor(0, 0, FALSE);
     WaitForVBlank();
     render_vblank();
+    sound_update();
 }

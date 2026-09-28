@@ -1,5 +1,6 @@
 #include <snes.h>
 #include "input.h"
+#include "sound.h"
 
 #define REPEAT_FIRST 15   /* frames avant la première répétition */
 #define REPEAT_NEXT   4   /* puis une case toutes les 4 frames */
@@ -364,9 +365,15 @@ bool_t input_update(Cursor *c, Match *m)
         c->repeat = 0;
     }
 
-    if (hit & KEY_A)      match_place(m, c->x, c->y);
-    if (hit & KEY_B)      match_undo(m);
+    if (hit & KEY_A)      sound_sfx(match_place(m, c->x, c->y) ? SFX_PLACE : SFX_REFUSE);
+    if (hit & KEY_B) {
+        if (match_undo(m)) sound_sfx(SFX_UNDO);
+    }
     if (hit & KEY_SELECT) c->show_range = (bool_t)!c->show_range;
 
-    return (bool_t)((hit & KEY_START) ? TRUE : FALSE);
+    if (hit & KEY_START) {
+        sound_sfx(SFX_SELECT);
+        return TRUE;
+    }
+    return FALSE;
 }
