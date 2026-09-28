@@ -28,6 +28,7 @@
 #include "render.h"
 #include "input.h"
 #include "screens.h"
+#include "sound.h"
 #include "ai.h"
 
 typedef enum { GS_TURN, GS_CPU_SHOW, GS_RESOLVE, GS_OVER } GameState;
@@ -146,6 +147,7 @@ int main(void)
        laisser traverser menu -> partie -> écran de fin -> menu suivant
        comme une seule chronologie continue. */
     render_init();
+    sound_init();
     input_reset();
 
 #ifdef BOOT_TUTORIAL
